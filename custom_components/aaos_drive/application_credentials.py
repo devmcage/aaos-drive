@@ -3,6 +3,8 @@
 from homeassistant.components.application_credentials import AuthorizationServer
 from homeassistant.helpers.config_entry_oauth2_flow import AUTH_CALLBACK_PATH, MY_AUTH_CALLBACK_PATH
 
+from .const import READ_SCOPE
+
 
 async def async_get_authorization_server(hass):
     return AuthorizationServer("https://accounts.google.com/o/oauth2/v2/auth", "https://oauth2.googleapis.com/token")
@@ -13,6 +15,7 @@ async def async_get_description_placeholders(hass):
     return {
         "oauth_consent_url": "https://console.cloud.google.com/auth/overview",
         "oauth_creds_url": "https://console.cloud.google.com/auth/clients",
-        "more_info_url": "https://developers.google.com/workspace/drive/api/guides/api-specific-auth",
+        "more_info_url": "https://github.com/devmcage/aaos-drive/blob/main/docs/INSTALLATION.md",
+        "drive_scope": READ_SCOPE,
         "redirect_url": redirect,
     }

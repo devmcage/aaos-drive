@@ -5,7 +5,7 @@
       "pick_implementation": {"title": "Choose Google application credentials"},
       "folder": {
         "title": "Select your AAOS Logging vehicle",
-        "description": "Enter the Google Drive URL or ID of AAOSLogging/<car-name>_<vehicle-id>. Select the car folder, which contains Sync and Backup. Synchronize your car using AAOS Logging V3 first. All access is read-only; logged values are completed-trip snapshots.",
+        "description": "Enter the Google Drive URL or ID of your car's folder inside AAOSLogging. Select the car folder, which contains Sync and Backup. Synchronize your car using AAOS Logging V3 first. All access is read-only; logged values are completed-trip snapshots.",
         "data": {"folder_id": "Vehicle folder URL or ID"}
       },
       "reauth_confirm": {
@@ -36,6 +36,6 @@
     }
   },
   "application_credentials": {
-    "description": "Enable Google Drive API and create a dedicated Web application OAuth client. Declare only https://www.googleapis.com/auth/drive.readonly. Add {redirect_url} as an authorized redirect URI. Configure consent at {oauth_consent_url} and credentials at {oauth_creds_url}. See {more_info_url}."
+    "description": "Enable Google Drive API and create a dedicated Web application OAuth client. Declare only {drive_scope}. Add {redirect_url} as an authorized redirect URI. Configure consent at {oauth_consent_url} and credentials at {oauth_creds_url}. See {more_info_url}."
   }
 }

@@ -56,6 +56,7 @@ class DataUpdateCoordinator:
 module("homeassistant")
 module("homeassistant.components")
 module("homeassistant.helpers")
+module("homeassistant.helpers.config_validation", config_entry_only_config_schema=lambda domain: {"domain": domain})
 module("homeassistant.components.sensor", SensorEntity=type("SensorEntity", (Entity,), {}))
 module("homeassistant.components.binary_sensor", BinarySensorEntity=type("BinarySensorEntity", (Entity,), {}))
 module("homeassistant.components.button", ButtonEntity=type("ButtonEntity", (Entity,), {}))
