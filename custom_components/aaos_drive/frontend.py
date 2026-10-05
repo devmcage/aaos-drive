@@ -96,8 +96,10 @@ async def points(hass, connection, msg):
 async def async_setup_frontend(hass):
     for command in (vehicles, fields, trips, points):
         websocket_api.async_register_command(hass, command)
-    await hass.http.async_register_static_paths([StaticPathConfig(
-        "/aaos_drive/history.js", str(Path(__file__).parent / "www/history.js"), False)])
+    await hass.http.async_register_static_paths([
+        StaticPathConfig("/aaos_drive/history.js", str(Path(__file__).parent / "www/history.js"), False),
+        StaticPathConfig("/aaos_drive/icon.png", str(Path(__file__).parent / "brand/icon@2x.png"), False),
+    ])
     await async_register_panel(hass, frontend_url_path="aaos-history", webcomponent_name="aaos-history-panel",
         sidebar_title="AAOS history", sidebar_icon="mdi:chart-timeline-variant",
-        module_url="/aaos_drive/history.js?v=0.4.1", embed_iframe=False, require_admin=True)
+        module_url="/aaos_drive/history.js?v=0.4.2", embed_iframe=False, require_admin=True)

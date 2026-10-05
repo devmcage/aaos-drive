@@ -1,7 +1,8 @@
 /* Local, dependency-free history panel and optional dashboard card. */
 const STYLE = `
-:host{display:block;color:var(--primary-text-color,#17212c);font:14px system-ui;background:var(--primary-background-color,#f6f8fa);height:100%;overflow:auto}
-main{max-width:1200px;margin:auto;padding:24px}h1{font-size:25px;margin:0 0 6px}p{color:var(--secondary-text-color,#536575)}
+:host{display:block;color:var(--primary-text-color,#17212c);font:14px var(--ha-font-family-body,Roboto,system-ui,sans-serif);background:var(--primary-background-color,#f6f8fa);height:100%;overflow:auto}
+main{max-width:1200px;margin:auto;padding:24px}h1{font-size:24px;font-weight:400;margin:0 0 6px}p{color:var(--secondary-text-color,#536575)}
+.brand-header{display:flex;align-items:center;gap:16px}.brand-icon{width:56px;height:56px;border-radius:14px;flex:none;object-fit:contain}.brand-header p{margin:0;line-height:1.5}
 .controls{display:flex;flex-wrap:wrap;gap:12px;margin:22px 0;align-items:end}label{display:flex;flex-direction:column;gap:6px;font-size:12px;min-width:150px}
 select,input,button{font:inherit;padding:10px;border:1px solid var(--divider-color,#c9d4dc);border-radius:8px;background:var(--card-background-color,#fff);color:inherit;max-width:100%;box-sizing:border-box}
 button{cursor:pointer}button:disabled{opacity:.5;cursor:default}.field{flex:1;min-width:250px}.message{min-height:20px;white-space:pre-wrap}
@@ -30,7 +31,7 @@ class AAOSHistory extends HTMLElement {
   build(){
     this.built=true;
     this.shadowRoot.innerHTML=`<style>${STYLE}</style><main>
-      <h1>AAOS trip dashboard</h1><p>Choose a trip or date range to chart each recorded car sensor at its original timestamp.</p>
+      <header class="brand-header"><img class="brand-icon" src="/aaos_drive/icon.png?v=0.4.2" width="56" height="56" alt="AAOS Logging"><div><h1>AAOS trip dashboard</h1><p>Choose a trip or date range to chart each recorded car sensor at its original timestamp.</p></div></header>
       <div class="controls"><label>Vehicle<select id="vehicle"></select></label>
       <label>Trip<select id="trip"><option value="">All trips in the period</option></select></label><button id="older" hidden>Load older trips</button>
       <label class="field">Find a sensor or measurement<input id="search" type="search" placeholder="Speed, battery, brakes, weather…"><select id="field"></select></label>

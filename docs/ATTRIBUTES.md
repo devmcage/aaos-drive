@@ -1,6 +1,6 @@
 # AAOS Logging Drive — attributes and data reference
 
-This document explains the data available in integration **0.4.1**, using AAOS Logging's Drive sync **V3** and trip schema **17**. It covers all **68 telemetry fields**, route/weather fields, trip measurements, vehicle specifications, export metadata and integration-added entity attributes. Installation and dashboard setup are described in [INSTALLATION.md](INSTALLATION.md).
+This document explains the data available in integration **0.4.2**, using AAOS Logging's Drive sync **V3** and trip schema **17**. It covers all **68 telemetry fields**, route/weather fields, trip measurements, vehicle specifications, export metadata and integration-added entity attributes. Installation and dashboard setup are described in [INSTALLATION.md](INSTALLATION.md).
 
 The names below are the exact source/history keys. Home Assistant displays readable names, such as **Telemetry battery percent**, and assigns entity IDs that may vary between installations. Use the entity's `history_field` attribute to find its source key.
 

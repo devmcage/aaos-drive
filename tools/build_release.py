@@ -29,7 +29,7 @@ release_dir = ROOT / "release"
 release_dir.mkdir(exist_ok=True)
 target = release_dir / f"aaos-drive-{version}.zip"
 paths = [ROOT / "README.md", ROOT / "LICENSE", ROOT / "hacs.json"]
-for folder in ("custom_components/aaos_drive", "docs"):
+for folder in ("custom_components/aaos_drive", "docs", "icon"):
     paths.extend(path for path in (ROOT / folder).rglob("*") if path.is_file() and "__pycache__" not in path.parts and path.suffix != ".pyc")
 with ZipFile(target, "w", ZIP_DEFLATED) as archive:
     for path in sorted(paths):
