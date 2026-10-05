@@ -4,6 +4,9 @@
 
 A read-only Home Assistant integration for **all recorded AAOS Logging vehicle data over time**, imported from the user's Google Drive.
 
+Use it in combination with the  Android Automotive OS app called "AAOS Logging" found at: https://play.google.com/store/apps/details?id=com.aaoslogging
+More details can be found at: https://mcagesoft.nl
+
 User documentation: [Detailed installation guide](docs/INSTALLATION.md) and [Complete attribute and data reference](docs/ATTRIBUTES.md).
 
 Version **0.4.2** supports Drive sync **V3**, TripLog day format **1**, trip schema **17**, and Home Assistant **2026.9 or later**. The Android app does not need changes. The integration and trip dashboard use the [official AAOS Logging artwork](icon/README.md).
