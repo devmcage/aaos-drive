@@ -1,0 +1,13 @@
+{
+  "domain": "aaos_drive",
+  "name": "AAOS Logging Drive",
+  "codeowners": ["@devmcage"],
+  "config_flow": true,
+  "dependencies": ["application_credentials", "frontend", "http", "panel_custom", "recorder", "websocket_api"],
+  "documentation": "https://github.com/devmcage/aaos-drive/blob/main/docs/INSTALLATION.md",
+  "integration_type": "device",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/devmcage/aaos-drive/issues",
+  "requirements": [],
+  "version": "0.4.1"
+}

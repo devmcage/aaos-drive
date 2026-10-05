@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.verification/
+.venv/
+release/*.zip
+.env
+.env.*
+secrets.yaml
+*.sqlite
+*.sqlite-*

@@ -1,0 +1,108 @@
+get_catalog:
+  name: Get committed catalog
+  description: Return the full committed manifest, vehicle specifications and month summaries.
+  fields:
+    config_entry_id:
+      name: Vehicle integration
+      required: true
+      selector:
+        config_entry:
+          integration: aaos_drive
+get_trip:
+  name: Get complete trip
+  description: Return all trip fields, telemetry, weather samples and route points. Blank trip ID selects the latest trip.
+  fields:
+    config_entry_id:
+      name: Vehicle integration
+      required: true
+      selector:
+        config_entry:
+          integration: aaos_drive
+    trip_id:
+      name: Exported trip ID
+      selector:
+        text: {}
+list_trips:
+  name: List trip measurements
+  description: Return all scalar trip measurements. Use Get complete trip for arrays of recorded samples.
+  fields:
+    config_entry_id:
+      name: Vehicle integration
+      required: true
+      selector:
+        config_entry:
+          integration: aaos_drive
+    period:
+      name: Period (YYYY-MM or YYYY-MM-DD; blank means all history)
+      selector:
+        text: {}
+get_index:
+  name: Get period index
+  description: Return a complete week or month index by its committed logical key (for example week:2026-W40 or month:2026-10). Use Get committed catalog for available keys.
+  fields:
+    config_entry_id:
+      name: Vehicle integration
+      required: true
+      selector:
+        config_entry:
+          integration: aaos_drive
+    logical_key:
+      name: Logical index key
+      required: true
+      selector:
+        text: {}
+get_history_fields:
+  name: List historical fields
+  description: Return every imported sensor and measurement field, trip count, sample count and time range.
+  fields:
+    config_entry_id:
+      name: Vehicle integration
+      required: true
+      selector:
+        config_entry:
+          integration: aaos_drive
+get_history:
+  name: Get recorded history
+  description: Return original timestamped values across all imported trips, including unknown values and enum codes. Follow next_cursor for all pages.
+  fields:
+    config_entry_id:
+      name: Vehicle integration
+      required: true
+      selector:
+        config_entry:
+          integration: aaos_drive
+    field:
+      name: Export field (for example telemetry.speedKph or trip.distanceKm)
+      required: true
+      selector:
+        text: {}
+    trip_id:
+      name: Recorded trip ID (optional; blank/omitted means all trips)
+      selector:
+        text: {}
+    start:
+      name: Start time (Unix milliseconds; optional)
+      selector:
+        number:
+          min: 0
+          max: 253402300799999
+          mode: box
+    end:
+      name: End time (Unix milliseconds; optional)
+      selector:
+        number:
+          min: 0
+          max: 253402300799999
+          mode: box
+    limit:
+      name: Samples per page
+      default: 2000
+      selector:
+        number:
+          min: 1
+          max: 10000
+          mode: box
+    cursor:
+      name: Next cursor from the previous response
+      selector:
+        object: {}

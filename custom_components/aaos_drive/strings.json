@@ -1,0 +1,41 @@
+{
+  "title": "AAOS Logging Drive",
+  "config": {
+    "step": {
+      "pick_implementation": {"title": "Choose Google application credentials"},
+      "folder": {
+        "title": "Select your AAOS Logging vehicle",
+        "description": "Enter the Google Drive URL or ID of AAOSLogging/<car-name>_<vehicle-id>. Select the car folder, which contains Sync and Backup. Synchronize your car using AAOS Logging V3 first. All access is read-only; logged values are completed-trip snapshots.",
+        "data": {"folder_id": "Vehicle folder URL or ID"}
+      },
+      "reauth_confirm": {
+        "title": "Reconnect read-only Google Drive access",
+        "description": "Sign in again to restore read-only access to the same AAOS Logging vehicle folder."
+      }
+    },
+    "error": {
+      "invalid_auth": "Google did not grant access. Reconnect using dedicated read-only credentials.",
+      "invalid_export": "This folder does not contain a complete supported AAOS Logging V3 snapshot. Select the vehicle folder and complete a car-side sync; check Home Assistant logs for import errors.",
+      "cannot_connect": "Unable to read Google Drive. Check your connection, permissions and Drive API configuration."
+    },
+    "abort": {
+      "already_configured": "This vehicle dataset is already configured.",
+      "readonly_required": "A read-only Drive grant is required. Use a dedicated Google OAuth client with only drive.readonly, without a previous write-access grant.",
+      "refresh_token_required": "Google did not return a refresh token. Revoke this dedicated application's consent and sign in again.",
+      "wrong_dataset": "This account or folder contains a different vehicle dataset.",
+      "cannot_read_folder": "The existing vehicle folder could not be read. Check the account and complete an AAOS Logging sync.",
+      "reauth_successful": "Read-only Google Drive access has been restored."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "AAOS Logging import settings",
+        "data": {"scan_minutes": "Read Drive every (minutes)", "stale_hours": "Mark telemetry stale after (hours)"}
+      }
+    }
+  },
+  "application_credentials": {
+    "description": "Enable Google Drive API and create a dedicated Web application OAuth client. Declare only https://www.googleapis.com/auth/drive.readonly. Add {redirect_url} as an authorized redirect URI. Configure consent at {oauth_consent_url} and credentials at {oauth_creds_url}. See {more_info_url}."
+  }
+}
