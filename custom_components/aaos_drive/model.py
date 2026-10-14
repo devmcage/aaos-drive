@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from functools import cached_property
 import hashlib
@@ -19,6 +19,10 @@ from .const import MAX_FILE_BYTES, MAX_ZIP_BYTES, TELEMETRY_FIELDS, TRIP_FIELDS,
 
 class InvalidExport(ValueError):
     """An export is inconsistent, incomplete or unsupported."""
+
+
+class ExportNotReady(InvalidExport):
+    """Drive is publishing or replacing a generation; retry the complete read."""
 
 
 def json_object(data: bytes) -> dict[str, Any]:
@@ -216,6 +220,9 @@ class Snapshot:
     catalog: dict
     trip: dict | None
     checked_at: datetime
+    manifest_hash: str | None = None
+    artifact_files: dict = field(default_factory=dict)
+    commit_folder_id: str | None = None
 
     @cached_property
     def telemetry(self) -> dict:

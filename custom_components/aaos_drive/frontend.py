@@ -24,6 +24,42 @@ def coordinator(hass, entry_id):
     return entry.runtime_data
 
 
+def sync_status(target):
+    snapshot = target.data
+    return {
+        "generation_id": snapshot.manifest.raw["generationId"] if snapshot else None,
+        "drive_available": target.last_update_success,
+        "last_checked_at": target.last_checked_at.isoformat() if target.last_checked_at else None,
+        "last_successful_sync": snapshot.checked_at.isoformat() if snapshot else None,
+        "latest_trip_at": snapshot.manifest.raw["latestTripEndTimestamp"] if snapshot else None,
+        "statistics_error": target.statistics_error,
+    }
+
+
+@websocket_api.websocket_command({vol.Required("type"): "aaos_drive/history/status", vol.Required("config_entry_id"): str})
+@websocket_api.require_admin
+@websocket_api.async_response
+async def status(hass, connection, msg):
+    target = coordinator(hass, msg["config_entry_id"])
+    async with target.lock:
+        connection.send_result(msg["id"], sync_status(target))
+
+
+@websocket_api.websocket_command({vol.Required("type"): "aaos_drive/history/refresh", vol.Required("config_entry_id"): str})
+@websocket_api.require_admin
+@websocket_api.async_response
+async def refresh(hass, connection, msg):
+    target = coordinator(hass, msg["config_entry_id"])
+    # async_refresh waits for the full import and coordinator publication. Do not
+    # hold target.lock here: the coordinator acquires it during the refresh.
+    await target.async_refresh()
+    if not target.last_update_success:
+        connection.send_error(msg["id"], "drive_refresh_failed", "Drive refresh failed. The last complete local history is retained; check the integration logs.")
+        return
+    async with target.lock:
+        connection.send_result(msg["id"], sync_status(target))
+
+
 @websocket_api.websocket_command({vol.Required("type"): "aaos_drive/history/vehicles"})
 @websocket_api.require_admin
 @websocket_api.async_response
@@ -50,8 +86,7 @@ async def fields(hass, connection, msg):
             external = statistic_id(target.entry.entry_id, field["field"]) if field["statistic_unit"] and not field["timestamp_value"] and not field["categorical"] else None
             field["statistic_id"] = native.get(field["field"]) or external
             field["external_statistic_id"] = external
-        result["drive_available"] = target.last_update_success
-        result["statistics_error"] = target.statistics_error
+        result.update(sync_status(target))
     connection.send_result(msg["id"], result)
 
 
@@ -94,7 +129,7 @@ async def points(hass, connection, msg):
 
 
 async def async_setup_frontend(hass):
-    for command in (vehicles, fields, trips, points):
+    for command in (vehicles, fields, trips, points, status, refresh):
         websocket_api.async_register_command(hass, command)
     await hass.http.async_register_static_paths([
         StaticPathConfig("/aaos_drive/history.js", str(Path(__file__).parent / "www/history.js"), False),
@@ -102,4 +137,4 @@ async def async_setup_frontend(hass):
     ])
     await async_register_panel(hass, frontend_url_path="aaos-history", webcomponent_name="aaos-history-panel",
         sidebar_title="AAOS history", sidebar_icon="mdi:chart-timeline-variant",
-        module_url="/aaos_drive/history.js?v=0.4.2", embed_iframe=False, require_admin=True)
+        module_url="/aaos_drive/history.js?v=0.4.3", embed_iframe=False, require_admin=True)

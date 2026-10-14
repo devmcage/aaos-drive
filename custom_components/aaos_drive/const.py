@@ -20,7 +20,7 @@ def readonly_grant(token: dict) -> bool:
 # Exact keys from AAOS Logging's TelemetryJsonContract (trip schema 17).
 TELEMETRY_FIELDS = (
     "recordedAt", "speedKph", "acceleratorPercent", "brakePercent", "lateralG",
-    "longitudinalG", "powerKw", "powerSource", "batteryEnergyWh", "turnSignalState",
+    "longitudinalG", "powerKw", "powerSource", "powerSignalDirection", "batteryEnergyWh", "turnSignalState",
     "steeringAngleDeg", "batteryPercent", "batteryTemperatureC",
     "vehicleOutsideTemperatureC", "chargePortConnected", "chargePortOpen", "chargeState",
     "tirePressureKpaLeftFront", "tirePressureKpaRightFront", "tirePressureKpaLeftRear",
@@ -46,7 +46,7 @@ BINARY_FIELDS = frozenset({
 })
 TRIP_FIELDS = (
     "tripId", "localId", "startedAt", "endedAt", "storageUnitSystem", "distanceKm",
-    "energyKwh", "energySource", "averageSpeedKph", "maxSpeedKph", "maxAccelerationG",
+    "energyKwh", "energySource", "powerSignalDirection", "averageSpeedKph", "maxSpeedKph", "maxAccelerationG",
     "maxBrakingG", "maxLateralG", "startLat", "startLon", "endLat", "endLon", "routeKey",
     "durationSeconds", "efficiencyKwhPer100Km", "telemetryCount", "routePointCount",
     "weatherSampleCount",

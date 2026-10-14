@@ -98,4 +98,5 @@ class AAOSEntity(CoordinatorEntity):
         }
         if group == "telemetry":
             attrs["power_source"] = snapshot.telemetry.get("powerSource")
+            attrs["power_signal_direction"] = snapshot.telemetry.get("powerSignalDirection")
         return attrs

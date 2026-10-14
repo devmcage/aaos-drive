@@ -1,4 +1,6 @@
 import unittest
+from unittest.mock import AsyncMock, patch
+import aiohttp
 
 from . import bootstrap
 from .fixtures import encoded
@@ -37,7 +39,10 @@ class Session:
 
     def get(self, url, **kwargs):
         self.calls.append((url, kwargs))
-        return self.responses.pop(0)
+        response = self.responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return response
 
 
 async def token():
@@ -45,6 +50,12 @@ async def token():
 
 
 class ApiTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.sleep = AsyncMock()
+        patcher = patch("custom_components.aaos_drive.api.asyncio.sleep", self.sleep)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     async def test_list_pagination_and_shared_drive_parameters(self):
         session = Session(Response({"files": [{"id": "a", "name": "one"}], "nextPageToken": "second"}), Response({"files": [{"id": "b", "name": "two"}]}))
         drive = ReadOnlyDrive(session, token)
@@ -72,12 +83,12 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
     async def test_permission_403_requests_reauthorization(self):
         response = Response({"error": {"errors": [{"reason": "insufficientPermissions"}]}}, status=403)
         with self.assertRaises(DriveAuthError):
-            await ReadOnlyDrive(Session(response), token).children("car")
+            await ReadOnlyDrive(Session(response, response, response), token).children("car")
 
     async def test_quota_403_is_retryable(self):
         response = Response({"error": {"errors": [{"reason": "rateLimitExceeded"}]}}, status=403)
         with self.assertRaises(DriveError) as caught:
-            await ReadOnlyDrive(Session(response), token).children("car")
+            await ReadOnlyDrive(Session(response, response, response), token).children("car")
         self.assertNotIsInstance(caught.exception, DriveAuthError)
 
     async def test_incomplete_listing_rejected(self):
@@ -92,7 +103,34 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
     async def test_redirects_and_http_failures_not_followed(self):
         for status in (302, 404, 429, 500):
             with self.subTest(status=status), self.assertRaises(DriveError):
-                await ReadOnlyDrive(Session(Response({}, status=status)), token).download("file")
+                response = Response({}, status=status)
+                await ReadOnlyDrive(Session(response, response, response), token).download("file")
+
+    async def test_transient_reads_retry_without_write_requests(self):
+        for failure in (Response({}, status=429), Response({}, status=503), aiohttp.ClientConnectionError("offline"),
+                        Response({"error": {"errors": [{"reason": "userRateLimitExceeded"}]}}, status=403)):
+            with self.subTest(failure=type(failure).__name__):
+                session = Session(failure, Response(b"latest archive", media=True))
+                self.assertEqual(await ReadOnlyDrive(session, token).download("file"), b"latest archive")
+                self.assertEqual(len(session.calls), 2)
+                self.assertTrue(all(call[1]["params"]["alt"] == "media" for call in session.calls))
+
+    async def test_auth_and_permission_failures_are_not_retried(self):
+        for response in (Response({}, status=401), Response({}, status=403)):
+            session = Session(response)
+            with self.assertRaises(DriveError):
+                await ReadOnlyDrive(session, token).children("car")
+            self.assertEqual(len(session.calls), 1)
+
+    async def test_retry_after_and_exhaustion_are_bounded(self):
+        response = Response({}, status=429)
+        response.headers = {"Retry-After": "5"}
+        session = Session(response, response, response)
+        with self.assertRaisesRegex(DriveError, "three read attempts"):
+            await ReadOnlyDrive(session, token).download("file")
+        self.assertEqual(len(session.calls), 3)
+        self.assertEqual(self.sleep.await_count, 2)
+        self.assertTrue(all(call.args[0] == 5 for call in self.sleep.await_args_list))
 
     def test_folder_url_parsing_and_query_injection_rejection(self):
         self.assertEqual(folder_id("https://drive.google.com/drive/u/0/folders/car_123?usp=sharing"), "car_123")

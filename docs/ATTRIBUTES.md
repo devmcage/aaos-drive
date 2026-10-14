@@ -1,6 +1,6 @@
 # AAOS Logging Drive — attributes and data reference
 
-This document explains the data available in integration **0.4.2**, using AAOS Logging's Drive sync **V3** and trip schema **17**. It covers all **68 telemetry fields**, route/weather fields, trip measurements, vehicle specifications, export metadata and integration-added entity attributes. Installation and dashboard setup are described in [INSTALLATION.md](INSTALLATION.md).
+This document explains the data available in integration **0.4.3**, using AAOS Logging's Drive sync **V3** and trip schema **17**. It covers all **69 telemetry fields**, route/weather fields, trip measurements, vehicle specifications, export metadata and integration-added entity attributes. Installation and dashboard setup are described in [INSTALLATION.md](INSTALLATION.md).
 
 The names below are the exact source/history keys. Home Assistant displays readable names, such as **Telemetry battery percent**, and assigns entity IDs that may vary between installations. Use the entity's `history_field` attribute to find its source key.
 
@@ -74,6 +74,7 @@ Each `telemetry.*` value belongs to an original telemetry sample. There are **58
 | --- | --- | --- |
 | `telemetry.powerKw` | Number; kW | Instantaneous battery power in the logger's convention: positive consumption, negative energy flowing into the battery, including regeneration. Check `powerSource` to distinguish direct measurements from estimates. |
 | `telemetry.powerSource` | Text; metadata | Origin of the power value. Codes are explained below. Exposed as the telemetry entity attribute `power_source` and retained in raw history; no separate power-source sensor is created. |
+| `telemetry.powerSignalDirection` | Text; metadata | `STANDARD` or `REVERSED`: the logger's selected vehicle power-signal direction used when normalizing direct readings. The exported `powerKw` is already normalized; do not reverse it again. Exposed as `power_signal_direction`, retained in raw history and absent/null in older exports. No separate sensor is created. |
 | `telemetry.batteryEnergyWh` | Number; Wh | Remaining traction-battery energy reported by the vehicle. Divide by 1,000 for kWh. It is not energy used since the previous trip. |
 | `telemetry.batteryPercent` | Number; % | Battery percentage computed by the logger from remaining energy and available capacity. Current usable capacity is preferred; nominal capacity is a fallback. The percentage source itself is not exported in this telemetry contract. |
 | `telemetry.batteryTemperatureC` | Number; °C | Battery temperature/average-temperature property when exposed to the app. Null does not imply a cold battery or a temperature fault. |
@@ -263,6 +264,7 @@ Latitude/longitude have stable measured entities and raw trip-history fields. Th
 | `trip.distanceKm` | Number; km | Saved total trip distance, chosen by the logger from available odometer/GPS/speed-derived distance. It is not an odometer value. |
 | `trip.energyKwh` | Number; kWh | Net energy used over the trip; positive consumption, negative net energy gain. Regeneration offsets consumption. It is not lifetime usage. |
 | `trip.energySource` | Text | Provenance of trip energy: direct vehicle readings, derived battery-energy changes, mixed sources or unknown; see the source-string table. |
+| `trip.powerSignalDirection` | Text; metadata | Power direction selected when the app recorded or corrected the trip, usually `STANDARD` or `REVERSED`. Exported `energyKwh` already includes the app's correction. Older exports can omit this field. |
 | `trip.averageSpeedKph` | Number; km/h | Average speed saved by the logger. Its current calculation is the mean of collected speed samples, rather than necessarily `distance / duration`. |
 | `trip.maxSpeedKph` | Number; km/h | Highest speed observed by the logger during the trip. Sample frequency limits which peaks can be captured. |
 | `trip.maxAccelerationG` | Number; g | Largest positive longitudinal acceleration saved for the trip. A summary 0 can be the logger's initialized maximum; inspect raw samples to confirm measurement availability. |
@@ -308,6 +310,10 @@ Open an entity under **Developer tools → States** to inspect its current state
 | `trip_id` | Exported ID of the latest trip for telemetry/weather/route entities. The position and utility entities currently leave this attribute null. Historical sample responses carry each sample's actual trip ID. |
 | `data_source` | Text identifying the source as `AAOS Logging Google Drive snapshot`. Values represent recorded exports, not a live car connection. |
 | `power_source` | On telemetry entities, the latest telemetry sample's `powerSource`. It describes that sample's power provenance, even when inspecting another telemetry sensor. |
+| `power_signal_direction` | On telemetry entities, the latest sample's `powerSignalDirection`, when exported. It describes the normalization already applied by the logger, rather than an instruction to invert the value. |
+| `last_checked_at` | On the Refresh Drive data button, UTC ISO time at which the most recent Drive check began; also available to the trip dashboard. Failed checks advance this time. |
+| `last_successful_sync` | On the Refresh Drive data button and dashboard, UTC ISO time at which the latest complete check/import finished. Checking an unchanged generation still advances it. |
+| `latest_trip_at_unix_ms` | On the Refresh Drive data button, ending time of the latest accepted trip in Unix milliseconds, or null for empty history. The dashboard displays the corresponding `latest_trip_at` status field as a local date/time. |
 | `raw_value` | Added when the displayed entity value is converted, structured or truncated: preserves its original form. It is not attached to every ordinary scalar reading. |
 | `value_encoding` | Added to many enum fields to state that they contain a raw AAOS property code with no inferred translation. See the enum interpretation section. |
 | `location_source` | Position-tracker attribute identifying its location as `last synced trip`. It is not live GPS. |

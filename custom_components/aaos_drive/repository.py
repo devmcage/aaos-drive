@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 import hashlib
 import re
 
-from .model import Artifact, InvalidExport, Manifest, Snapshot, archive_trips, finite, integer, json_object, trip_summary
+from .model import Artifact, ExportNotReady, InvalidExport, Manifest, Snapshot, archive_trips, finite, integer, json_object, trip_summary
 
 
 class DriveRepository:
@@ -30,7 +30,7 @@ class DriveRepository:
         else:
             remote = files.get(artifact.name)
             if not remote:
-                raise InvalidExport("A committed artifact is not visible yet; retry later")
+                raise ExportNotReady("A committed artifact is not visible yet; retry later")
             data = await self.drive.download(remote["id"])
             await self.executor(artifact.verify, data)
             # Bound retained compressed data to 32 MiB; larger archives are read on demand.
@@ -43,23 +43,13 @@ class DriveRepository:
         await self.executor(artifact.verify, data)
         return data
 
-    async def refresh(self) -> Snapshot:
+    async def refresh(self, *, accept: bool = True) -> Snapshot:
         sync = await self.drive.child_folder(self.vehicle_folder, "Sync")
         root = await self.drive.child_folder(sync, "V3")
         commits_id = await self.drive.child_folder(root, "Commits")
         artifacts_id = await self.drive.child_folder(root, "Artifacts")
-        candidates = []
-        for file in await self.drive.children(commits_id):
-            match = re.fullmatch(r"commit-(\d{20})-([A-Za-z0-9_-]+)\.json", file.get("name", ""))
-            if match:
-                candidates.append((int(match[1]), file))
-        if not candidates:
-            raise InvalidExport("No committed V3 generation; synchronize AAOS Logging first")
-        newest = max(sequence for sequence, _ in candidates)
-        head_files = [file for sequence, file in candidates if sequence == newest]
-        if len(head_files) != 1:
-            raise InvalidExport("Ambiguous latest generation sequence")
-        head = head_files[0]
+        head = await self._latest_commit(commits_id)
+        newest = int(head["name"].split("-", 2)[1])
         raw = await self.drive.download(head["id"], limit=16 * 1024 * 1024)
         manifest = await self.executor(Manifest.parse, raw, head["name"])
         manifest_hash = hashlib.sha256(raw).hexdigest()
@@ -82,11 +72,12 @@ class DriveRepository:
             if file["name"] in files:
                 raise InvalidExport("Duplicate artifact filenames")
             files[file["name"]] = file
-        # Validate every referenced artifact, including historical archives. Never publish a partial head.
         for artifact in manifest.artifacts:
             remote = files.get(artifact.name)
-            if not remote or str(remote.get("size")) != str(artifact.size):
-                raise InvalidExport("Committed artifact is missing or has a different size")
+            if not remote:
+                raise ExportNotReady("Committed artifact is missing; the Drive generation may still be becoming visible")
+            if str(remote.get("size")) != str(artifact.size):
+                raise InvalidExport("Committed artifact has a different size")
             checksum = remote.get("sha256Checksum")
             if checksum:
                 if checksum != artifact.sha256:
@@ -96,23 +87,55 @@ class DriveRepository:
         catalog_artifact = next(a for a in manifest.artifacts if a.kind == "catalog")
         catalog = await self.executor(json_object, await self._artifact_bytes(catalog_artifact, files))
         await self.executor(validate_catalog, catalog, manifest)
-        archives = [a for a in manifest.artifacts if a.kind in {"day_archive", "month_archive"} and a.trip_count]
+        archives = sorted((a for a in manifest.artifacts if a.kind in {"day_archive", "month_archive"} and a.trip_count),
+                          key=lambda a: a.period, reverse=True)
         trip = None
-        if archives:
-            latest = max(archives, key=lambda a: a.period)
-            trips = await self.executor(archive_trips, await self._artifact_bytes(latest, files), latest, manifest.raw["datasetId"])
-            trip = max(trips, key=lambda t: (t.get("endedAt") or t["startedAt"], t["startedAt"], t["tripId"]))
-            if (trip.get("endedAt") or trip["startedAt"]) != manifest.raw["latestTripEndTimestamp"]:
-                raise InvalidExport("Latest trip does not match the committed snapshot")
-        elif manifest.raw["totalTripCount"]:
+        for artifact in archives:
+            trips = await self.executor(archive_trips, await self._artifact_bytes(artifact, files), artifact, manifest.raw["datasetId"])
+            candidate = max(trips, key=lambda t: (t.get("endedAt") or t["startedAt"], t["startedAt"], t["tripId"]))
+            if trip is None or (candidate.get("endedAt") or candidate["startedAt"], candidate["startedAt"], candidate["tripId"]) > \
+                    (trip.get("endedAt") or trip["startedAt"], trip["startedAt"], trip["tripId"]):
+                trip = candidate
+            if (trip.get("endedAt") or trip["startedAt"]) == manifest.raw["latestTripEndTimestamp"]:
+                break
+        if trip is not None and (trip.get("endedAt") or trip["startedAt"]) != manifest.raw["latestTripEndTimestamp"]:
+            raise InvalidExport("Latest trip does not match the committed snapshot")
+        if trip is None and manifest.raw["totalTripCount"]:
             raise InvalidExport("Missing detailed trip archives")
-        snapshot = Snapshot(manifest, catalog, trip, datetime.now(timezone.utc))
-        self.snapshot, self._manifest_hash, self._files = snapshot, manifest_hash, files
-        self.accepted_head = {"sequence": newest, "manifest_hash": manifest_hash}
+        snapshot = Snapshot(manifest, catalog, trip, datetime.now(timezone.utc), manifest_hash, files, commits_id)
+        await self.ensure_current(snapshot)
+        if accept:
+            self.accept_snapshot(snapshot)
         return snapshot
 
+    async def _latest_commit(self, commits_id: str) -> dict:
+        candidates = []
+        for file in await self.drive.children(commits_id):
+            match = re.fullmatch(r"commit-(\d{20})-([A-Za-z0-9_-]+)\.json", file.get("name", ""))
+            if match:
+                candidates.append((int(match[1]), file))
+        if not candidates:
+            raise InvalidExport("No committed V3 generation; synchronize AAOS Logging first")
+        newest = max(sequence for sequence, _ in candidates)
+        head_files = [file for sequence, file in candidates if sequence == newest]
+        if len(head_files) != 1:
+            raise InvalidExport("Ambiguous latest generation sequence")
+        return head_files[0]
+
+    async def ensure_current(self, snapshot: Snapshot) -> None:
+        if snapshot.commit_folder_id is None:
+            return
+        head = await self._latest_commit(snapshot.commit_folder_id)
+        expected = f"commit-{snapshot.manifest.raw['generationSequence']:020d}-{snapshot.manifest.raw['generationId']}.json"
+        if head["name"] != expected:
+            raise ExportNotReady("Drive changed during import; retrying the latest complete generation")
+
+    def accept_snapshot(self, snapshot: Snapshot) -> None:
+        self.snapshot, self._manifest_hash, self._files = snapshot, snapshot.manifest_hash, snapshot.artifact_files
+        self.accepted_head = {"sequence": snapshot.manifest.raw["generationSequence"], "manifest_hash": snapshot.manifest_hash}
+
     async def archive(self, snapshot: Snapshot, artifact: Artifact) -> list[dict]:
-        data = await self._artifact_bytes(artifact, self._files)
+        data = await self._artifact_bytes(artifact, snapshot.artifact_files or self._files)
         return await self.executor(archive_trips, data, artifact, snapshot.manifest.raw["datasetId"])
 
     async def trips(self, snapshot: Snapshot, period: str = "", summaries_only: bool = False) -> list[dict]:
@@ -124,7 +147,7 @@ class DriveRepository:
                 continue
             if period and not (artifact.period.startswith(period) or period.startswith(artifact.period)):
                 continue
-            data = await self._artifact_bytes(artifact, self._files)
+            data = await self._artifact_bytes(artifact, snapshot.artifact_files or self._files)
             trips = await self.executor(archive_trips, data, artifact, snapshot.manifest.raw["datasetId"])
             if len(period) == 10:
                 # Monthly ZIPs group by start day in the export's timezone.
@@ -146,7 +169,7 @@ class DriveRepository:
         for artifact in sorted(snapshot.manifest.artifacts, key=lambda a: a.period or "", reverse=True):
             if artifact.kind not in {"day_archive", "month_archive"}:
                 continue
-            data = await self._artifact_bytes(artifact, self._files)
+            data = await self._artifact_bytes(artifact, snapshot.artifact_files or self._files)
             trips = await self.executor(archive_trips, data, artifact, snapshot.manifest.raw["datasetId"])
             for trip in trips:
                 if trip["tripId"] == trip_id:
@@ -157,7 +180,7 @@ class DriveRepository:
         artifact = next((a for a in snapshot.manifest.artifacts if a.key == logical_key and a.kind in {"week_index", "month_index", "catalog"}), None)
         if artifact is None:
             raise InvalidExport("Index key is not in this committed snapshot; inspect Get committed catalog")
-        return await self.executor(json_object, await self._artifact_bytes(artifact, self._files))
+        return await self.executor(json_object, await self._artifact_bytes(artifact, snapshot.artifact_files or self._files))
 
 
 def validate_catalog(catalog: dict, manifest: Manifest) -> None:

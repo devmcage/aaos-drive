@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import AsyncMock, Mock
 
 from . import bootstrap, ha_stub
-from .fixtures import FakeDrive
+from .fixtures import FakeDrive, day_document
 from custom_components.aaos_drive.history import HistoryStore, sync_history, statistic_id
 from custom_components.aaos_drive.repository import DriveRepository
 
@@ -74,6 +74,25 @@ class StatisticsTests(unittest.IsolatedAsyncioTestCase):
         await sync_history(self.history,self.repo,snapshot,asyncio.to_thread)
         await self.module.sync_statistics(self.hass,self.entry,self.history)
         self.add.assert_not_called()
+
+    async def test_current_app_power_correction_replaces_native_and_external_hours(self):
+        await self.module.sync_statistics(self.hass,self.entry,self.history)
+        self.add.reset_mock()
+        self.native_add.reset_mock()
+        latest=day_document("2026-10-04","dataset-a-2")
+        latest["trips"][0]["telemetry"][0].update(powerKw=3.2,powerSignalDirection="REVERSED")
+        latest["trips"][0].update(energyKwh=0.01,powerSignalDirection="REVERSED")
+        self.repo.drive.publish(2,uniform=True,latest_day=latest)
+        snapshot=await self.repo.refresh()
+        await sync_history(self.history,self.repo,snapshot,asyncio.to_thread)
+        await self.module.sync_statistics(self.hass,self.entry,self.history)
+        native=[call for call in self.native_add.call_args_list if call.args[1]["statistic_id"]=="sensor.car_power"]
+        external=[call for call in self.add.call_args_list if call.args[1]["statistic_id"]==statistic_id("entry1","telemetry.powerKw")]
+        self.assertEqual(len(native),1)
+        self.assertEqual(len(external),1)
+        self.assertEqual(native[0].args[2][-1]["mean"],3.2)
+        self.assertEqual(external[0].args[2][-1]["mean"],3.2)
+        self.assertFalse(self.history.state()["statistics_pending"])
 
     async def test_removed_hours_clear_only_affected_owned_statistics(self):
         await self.module.sync_statistics(self.hass,self.entry,self.history)

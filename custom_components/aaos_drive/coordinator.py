@@ -1,7 +1,7 @@
 """Refresh safely and keep the last validated snapshot on failure."""
 
 import asyncio
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 import sqlite3
 
@@ -11,9 +11,9 @@ from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.core import CoreState
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .api import DriveAuthError
+from .api import DriveAuthError, DriveNotFoundError
 from .const import DEFAULT_SCAN_MINUTES, NAME
-from .model import InvalidExport
+from .model import ExportNotReady, InvalidExport
 from .api import DriveError
 from .history import sync_history
 
@@ -31,13 +31,25 @@ class AAOSCoordinator(DataUpdateCoordinator):
         self.visibility_generation = None
         self.statistics_error = None
         self.saved_head = repository.accepted_head
+        self.last_checked_at = None
 
     async def _async_update_data(self):
         try:
             async with self.lock:
-                snapshot = await self.repository.refresh()
+                self.last_checked_at = datetime.now(timezone.utc)
+                for attempt in range(3):
+                    try:
+                        snapshot = await self.repository.refresh(accept=False)
+                        if self.history is not None:
+                            await sync_history(self.history, self.repository, snapshot, self.hass.async_add_executor_job)
+                        break
+                    except (ExportNotReady, DriveNotFoundError):
+                        if attempt == 2:
+                            raise
+                        await asyncio.sleep(2 ** attempt)
+                self.repository.accept_snapshot(snapshot)
+                snapshot.checked_at = datetime.now(timezone.utc)
                 if self.history is not None:
-                    await sync_history(self.history, self.repository, snapshot, self.hass.async_add_executor_job)
                     if self.visibility_generation != snapshot.manifest.raw["generationId"]:
                         fields_with_data = await self.hass.async_add_executor_job(self.history.fields_with_data)
                     else:

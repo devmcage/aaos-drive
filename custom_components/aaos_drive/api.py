@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import random
 import re
 from typing import Awaitable, Callable
 
@@ -19,6 +21,18 @@ class DriveAuthError(DriveError):
     """The Drive grant needs renewed consent."""
 
 
+class DriveNotFoundError(DriveError):
+    """A file vanished or is not yet visible during a generation replacement."""
+
+
+class RetryableDriveError(DriveError):
+    """A rate limit or temporary Google service error."""
+
+    def __init__(self, message, retry_after=0):
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
 def folder_id(value: str) -> str:
     value = value.strip()
     match = re.fullmatch(r"https://drive\.google\.com/drive/(?:u/\d+/)?folders/([\w-]+)(?:\?.*)?", value)
@@ -34,6 +48,16 @@ class ReadOnlyDrive:
         self.token = token
 
     async def _read(self, path: str, params: dict, limit: int, media: bool = False):
+        for attempt in range(3):
+            try:
+                return await self._read_once(path, params, limit, media)
+            except (RetryableDriveError, aiohttp.ClientError, TimeoutError) as err:
+                if attempt == 2:
+                    raise DriveError("Google Drive is temporarily unavailable after three read attempts") from err
+                delay = max(2 ** attempt + random.random(), getattr(err, "retry_after", 0))
+                await asyncio.sleep(min(delay, 60))
+
+    async def _read_once(self, path: str, params: dict, limit: int, media: bool = False):
         access_token = await self.token()
         async with self.session.get(
             f"{API_ROOT}/{path}", params=params,
@@ -51,7 +75,17 @@ class ReadOnlyDrive:
                     reasons = set()
                 if reasons & {"insufficientPermissions", "authError"}:
                     raise DriveAuthError("Google Drive read-only permission is required")
+                if reasons & {"rateLimitExceeded", "userRateLimitExceeded"}:
+                    raise RetryableDriveError("Google Drive read rate limit reached")
                 raise DriveError("Google Drive denied the read (permission, API configuration or quota)")
+            if response.status in {429, 500, 502, 503, 504}:
+                try:
+                    retry_after = max(0, min(float(getattr(response, "headers", {}).get("Retry-After", "0")), 60))
+                except ValueError:
+                    retry_after = 0
+                raise RetryableDriveError(f"Temporary Google Drive HTTP {response.status}", retry_after)
+            if response.status == 404:
+                raise DriveNotFoundError("A Google Drive file is not visible or accessible")
             if response.status >= 300:
                 raise DriveError(f"Google Drive read failed with HTTP {response.status}")
             data = bytearray()

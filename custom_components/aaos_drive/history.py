@@ -129,6 +129,12 @@ class HistoryStore:
             total, unique = db.execute("SELECT COUNT(*),COUNT(DISTINCT trip_id) FROM trips WHERE sha IN (SELECT sha FROM active)").fetchone()
             if total != manifest["totalTripCount"] or total != unique:
                 raise InvalidExport("Historical trip identity or total count mismatch")
+            latest = db.execute("SELECT ended,data FROM trips WHERE sha IN (SELECT sha FROM active) ORDER BY ended DESC,started DESC,trip_id DESC LIMIT 1").fetchone()
+            if (latest[0] if latest else None) != manifest["latestTripEndTimestamp"]:
+                raise InvalidExport("Complete history does not match the committed latest trip")
+            snapshot.trip = json.loads(latest[1]) if latest else None
+            for key in ("telemetry", "weather", "route", "readings"):
+                snapshot.__dict__.pop(key, None)
             sha = "snapshot:" + manifest["generationId"]
             if not db.execute("SELECT 1 FROM snapshots WHERE sha=?", (sha,)).fetchone():
                 at = manifest["generatedAt"]
@@ -311,6 +317,7 @@ async def sync_history(store, repository, snapshot, executor):
     for artifact in snapshot.manifest.artifacts:
         if artifact.kind in {"week_index", "month_index"}:
             indexes[artifact.key] = await repository.index(snapshot, artifact.key)
+    await repository.ensure_current(snapshot)
     await executor(store.complete, snapshot, indexes)
 
 

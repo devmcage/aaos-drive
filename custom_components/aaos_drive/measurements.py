@@ -9,7 +9,7 @@ TIMESTAMPS = {"recordedAt", "startedAt", "endedAt", "capturedAt", "generatedAt",
 def car_sensor(key):
     """Measured fields have stable entities; timestamps and summaries are attributes/data."""
     group, _, field = key.partition(".")
-    return group in {"telemetry", "weather", "route"} and field not in TIMESTAMPS and field != "powerSource"
+    return group in {"telemetry", "weather", "route"} and field not in TIMESTAMPS and field not in {"powerSource", "powerSignalDirection"}
 
 
 def label(key):

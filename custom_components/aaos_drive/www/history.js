@@ -26,18 +26,18 @@ class AAOSHistory extends HTMLElement {
   get hass(){return this._hass;}
   setConfig(config){this.config=config;if(this.initialized)this.loadVehicles();}
   getCardSize(){return 10;}
-  connectedCallback(){if(!this.built)this.build();if(this._hass&&!this.initialized)this.initialize();}
-  disconnectedCallback(){this.request++;}
+  connectedCallback(){if(!this.built)this.build();if(this._hass&&!this.initialized)this.initialize();else if(this.initialized){this.startPolling();this.checkForUpdates();}}
+  disconnectedCallback(){this.request++;clearInterval(this.pollTimer);this.pollTimer=null;}
   build(){
     this.built=true;
     this.shadowRoot.innerHTML=`<style>${STYLE}</style><main>
-      <header class="brand-header"><img class="brand-icon" src="/aaos_drive/icon.png?v=0.4.2" width="56" height="56" alt="AAOS Logging"><div><h1>AAOS trip dashboard</h1><p>Choose a trip or date range to chart each recorded car sensor at its original timestamp.</p></div></header>
+      <header class="brand-header"><img class="brand-icon" src="/aaos_drive/icon.png?v=0.4.3" width="56" height="56" alt="AAOS Logging"><div><h1>AAOS trip dashboard</h1><p>Choose a trip or date range to chart each recorded car sensor at its original timestamp.</p></div></header>
       <div class="controls"><label>Vehicle<select id="vehicle"></select></label>
       <label>Trip<select id="trip"><option value="">All trips in the period</option></select></label><button id="older" hidden>Load older trips</button>
       <label class="field">Find a sensor or measurement<input id="search" type="search" placeholder="Speed, battery, brakes, weather…"><select id="field"></select></label>
       <label>From<input id="from" type="datetime-local"></label><label>Through<input id="through" type="datetime-local"></label>
-      <button id="show">Show history</button><button id="reload">Reload data</button></div>
-      <p id="coverage"></p><p id="tripinfo"></p><div id="message" class="message" role="status" aria-live="polite"></div>
+      <button id="show">Show history</button><button id="reload">Refresh Drive data</button></div>
+      <p id="coverage"></p><p id="syncinfo"></p><p id="tripinfo"></p><div id="message" class="message" role="status" aria-live="polite"></div>
       <div class="chart"><strong id="title"></strong><svg viewBox="0 0 1000 310" role="img" aria-label="Recorded measurements over time"></svg><p id="chartnote"></p></div>
       <div id="graphs"></div>
       <div class="table"><table><thead><tr><th>Recorded time</th><th>Value</th><th>Trip</th><th>Sample</th></tr></thead><tbody></tbody></table></div>
@@ -49,13 +49,45 @@ class AAOSHistory extends HTMLElement {
     this.$("older").onclick=()=>this.loadTrips(true).catch(e=>this.status(e.message));
     this.$("show").onclick=async()=>{try{await this.loadTrips();await this.loadPoints();}catch(e){this.status(e.message||"Could not load this selection.");}};
     this.$("field").onchange=()=>this.loadPoints();
-    this.$("reload").onclick=()=>this.loadFields();
+    this.$("reload").onclick=()=>this.refreshDrive();
     this.$("more").onclick=()=>this.loadPoints(true);
     this.$("csv").onclick=()=>this.exportCSV();
   }
   $(id){return this.shadowRoot.getElementById(id);}
   status(text){this.$("message").textContent=text;}
-  async initialize(){this.initialized=true;await this.loadVehicles();}
+  async initialize(){this.initialized=true;await this.loadVehicles();if(this.isConnected)this.startPolling();}
+  startPolling(){if(!this.pollTimer)this.pollTimer=setInterval(()=>this.checkForUpdates(),60000);}
+  syncInfo(info){
+    const date=value=>value===null||value===undefined?"Not yet available":new Date(value).toLocaleString();
+    this.$("syncinfo").textContent=`Drive checked: ${date(info.last_checked_at)} · Last successful sync: ${date(info.last_successful_sync)} · Latest recorded trip: ${date(info.latest_trip_at)}`;
+  }
+  async checkForUpdates(){
+    if(this.polling||this.refreshing||this.loadingFields||this.loadingPoints||this.exporting||!this.$("vehicle").value)return;
+    const entry=this.$("vehicle").value,serial=this.request;
+    this.polling=true;
+    try{
+      const info=await this.call("aaos_drive/history/status",{config_entry_id:entry});
+      if(serial!==this.request||entry!==this.$("vehicle").value)return;
+      this.syncInfo(info);
+      if(info.generation_id!==this.info?.generation_id)await this.loadFields(true);
+      else{
+        this.info={...this.info,...info};
+        this.status(info.drive_available===false?"Drive is currently unavailable. Showing the last complete local history.":info.statistics_error||"");
+      }
+    }catch(e){if(serial===this.request)this.status("Could not check for new imported history. Refresh Drive data to retry.");}
+    finally{this.polling=false;}
+  }
+  async refreshDrive(){
+    if(this.refreshing||!this.$("vehicle").value)return;
+    const entry=this.$("vehicle").value;
+    this.refreshing=true;this.request++;this.$("reload").disabled=true;
+    this.status("Checking Google Drive and importing its latest complete history…");
+    let failure;
+    try{await this.call("aaos_drive/history/refresh",{config_entry_id:entry});}
+    catch(e){failure=e.message||"Drive refresh failed. Showing the last complete local history.";}
+    try{if(entry===this.$("vehicle").value){await this.loadFields(true);if(failure)this.status(failure);}}
+    finally{this.refreshing=false;this.$("reload").disabled=false;}
+  }
   async call(type,extra={}){return this._hass.callWS({type,...extra});}
   async loadVehicles(){
     try{
@@ -66,29 +98,46 @@ class AAOSHistory extends HTMLElement {
       if(vehicles.length)await this.loadFields();else this.status("No loaded AAOS vehicle yet. Add the integration and allow its first full history import to finish.");
     }catch(e){this.status(e.message||"Could not load vehicles. This history view requires a Home Assistant administrator account.");}
   }
-  async loadFields(){
+  async loadFields(preserve=false){
     const serial=++this.request;
+    const entry=this.$("vehicle").value;
+    const selected=preserve&&this.currentEntry===entry?{trip:this.$("trip").value,field:this.$("field").value,
+      from:this.$("from").value,through:this.$("through").value,tripSelection:this.tripSelection,
+      range:this.$("trip").value?this.periodRange:{from:this.$("from").value,through:this.$("through").value},defaultRange:this.defaultRange}:null;
+    this.loadingFields=true;
+    this.fieldsRequest=serial;
     this.status("Loading imported history…");
     try{
-      const info=await this.call("aaos_drive/history/fields",{config_entry_id:this.$("vehicle").value});
+      const info=await this.call("aaos_drive/history/fields",{config_entry_id:entry});
       if(serial!==this.request)return;
       this.info=info;
+      this.currentEntry=entry;this.syncInfo(info);
       this.$("coverage").textContent=`${info.trip_count} trips · ${info.record_count.toLocaleString()} sample records · ${info.start===null?"No recorded history":new Date(info.start).toLocaleString()+" — "+new Date(info.end).toLocaleString()}`;
       this.$("from").value=info.start===null?"":localInput(info.start);
       // Include the final minute in the default date selection.
       this.$("through").value=info.end===null?"":localInput(info.end+60000);
+      this.defaultRange={from:this.$("from").value,through:this.$("through").value};
+      if(selected?.range&&JSON.stringify(selected.range)!==JSON.stringify(selected.defaultRange)){
+        this.$("from").value=selected.range.from;this.$("through").value=selected.range.through;
+      }
       this.periodRange={from:this.$("from").value,through:this.$("through").value};
       await this.loadTrips(false, serial);
       if(serial!==this.request)return;
-      if(this.config?.trip_id){
-        while(serial===this.request&&this.tripCursor&&!this.trips.some(t=>t.trip_id===this.config.trip_id))await this.loadTrips(true,serial);
+      const preferredTrip=selected?selected.trip:this.config?.trip_id;
+      if(preferredTrip){
+        while(serial===this.request&&this.tripCursor&&!this.trips.some(t=>t.trip_id===preferredTrip))await this.loadTrips(true,serial);
         if(serial!==this.request)return;
-        if(this.trips.some(t=>t.trip_id===this.config.trip_id))this.$("trip").value=this.config.trip_id;
+        if(this.trips.some(t=>t.trip_id===preferredTrip))this.$("trip").value=preferredTrip;
         this.tripBounds();
+        if(selected?.tripSelection&&selected.trip===this.$("trip").value&&
+          (selected.from!==selected.tripSelection.from||selected.through!==selected.tripSelection.through)){
+          this.$("from").value=selected.from;this.$("through").value=selected.through;this.tripSelection=selected.tripSelection;
+        }
       }
-      this.filterFields(this.config?.field||this.config?.fields?.[0]||"telemetry.speedKph");
+      this.filterFields(selected?.field||this.config?.field||this.config?.fields?.[0]||"telemetry.speedKph");
       await this.loadPoints();
     }catch(e){if(serial===this.request)this.status(e.message||"Could not load the imported fields.");}
+    finally{if(this.fieldsRequest===serial)this.loadingFields=false;}
   }
   async loadTrips(append=false, serial){
     if(serial===undefined)serial=this.request;
@@ -162,6 +211,8 @@ class AAOSHistory extends HTMLElement {
     if(!append&&!query.trip_id)this.periodRange={from:this.$("from").value,through:this.$("through").value};
     if(!query.field){this.status("No matching field. Clear the search or choose a different vehicle.");return;}
     const serial=++this.request;
+    this.loadingPoints=true;
+    this.pointsRequest=serial;
     this.status("Loading recorded samples…");this.$("more").disabled=true;this.$("csv").disabled=true;
     try{
       const fields=append?this.loadedFields:[...new Set([query.field,...(this.config?.fields||[])])].filter(f=>this.info.fields.some(info=>info.field===f));
@@ -181,7 +232,7 @@ class AAOSHistory extends HTMLElement {
       this.render();
       this.status(this.info.drive_available===false?"Drive is currently unavailable. Showing the last complete local history.":this.info.statistics_error||"");
     }catch(e){if(serial===this.request)this.status(e.message||"History changed or could not be read. Reload fields and try again.");}
-    finally{if(serial===this.request){this.$("more").disabled=!this.moreAvailable;this.$("csv").disabled=!this.samples.length;}}
+    finally{if(this.pointsRequest===serial)this.loadingPoints=false;if(serial===this.request){this.$("more").disabled=!this.moreAvailable;this.$("csv").disabled=!this.samples.length;}}
   }
   render(){
     const data=this.data, rows=this.samples;
@@ -247,6 +298,7 @@ class AAOSHistory extends HTMLElement {
   }
   async exportCSV(){
     const query={...this.loadedQuery},serial=++this.request;
+    this.exporting=true;
     this.$("csv").disabled=true;this.$("more").disabled=true;
     const lines=["recorded_at_utc,recorded_at_unix_ms,field,value_json,unit,trip_id,sample_index"];
     let cursor, generation=null;
@@ -263,7 +315,7 @@ class AAOSHistory extends HTMLElement {
       const link=document.createElement("a");link.href=url;link.download="aaos-"+query.field.replace(/[^a-z0-9_-]/gi,"_")+".csv";link.click();setTimeout(()=>URL.revokeObjectURL(url),10000);
       this.status(`Exported ${(lines.length-1).toLocaleString()} samples.`);
     }catch(e){this.status(e.message||"CSV export failed.");}
-    finally{if(serial===this.request){this.$("csv").disabled=false;this.$("more").disabled=!this.moreAvailable;}}
+    finally{this.exporting=false;if(serial===this.request){this.$("csv").disabled=false;this.$("more").disabled=!this.moreAvailable;}}
   }
 }
 if(!customElements.get("aaos-history-panel"))customElements.define("aaos-history-panel",class extends AAOSHistory{});

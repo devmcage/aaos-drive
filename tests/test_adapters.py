@@ -64,6 +64,7 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(any(key.startswith(("month.", "trip.", "vehicle.", "dataset.")) for key in keys))
         self.assertNotIn("telemetry.recordedAt", keys)
         self.assertNotIn("telemetry.powerSource", keys)
+        self.assertNotIn("telemetry.powerSignalDirection", keys)
         self.assertNotIn("telemetry.chargePortConnected", keys)
         speed=next(entity for entity in added if entity.key=="telemetry.speedKph")
         self.assertEqual(speed._attr_state_class,"measurement")
@@ -108,6 +109,18 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((tracker.latitude, tracker.longitude), (52.01, 5.01))
         self.assertTrue(tracker.available)
         self.assertEqual(tracker.extra_state_attributes["recorded_at_unix_ms"], self.snapshot.trip["endedAt"])
+
+    async def test_power_direction_is_metadata_and_refresh_times_are_distinct(self):
+        self.snapshot.telemetry["powerSignalDirection"] = "REVERSED"
+        sensor = AAOSSensor(self.coordinator, "telemetry.powerKw")
+        self.assertEqual(sensor.native_value, -3.2)
+        self.assertEqual(sensor.extra_state_attributes["power_signal_direction"], "REVERSED")
+        self.coordinator.last_checked_at = self.snapshot.checked_at + timedelta(minutes=15)
+        self.coordinator.last_update_success = False
+        attrs = RefreshButton(self.coordinator).extra_state_attributes
+        self.assertEqual(attrs["last_checked_at"], self.coordinator.last_checked_at.isoformat())
+        self.assertEqual(attrs["last_successful_sync"], self.snapshot.checked_at.isoformat())
+        self.assertEqual(attrs["latest_trip_at_unix_ms"], self.snapshot.trip["endedAt"])
 
     async def test_stale_is_based_on_recorded_time_not_last_poll(self):
         self.snapshot.telemetry["recordedAt"] = int((datetime.now(timezone.utc) - timedelta(hours=48)).timestamp() * 1000)

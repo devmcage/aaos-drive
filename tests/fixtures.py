@@ -46,12 +46,13 @@ def day_document(date, trip_id, start=1791090000000):
             "datasetId": "dataset-a", "carName": "Test car", "generatedAt": start + 120000, "trips": [trip]}
 
 
-def generation(sequence=1, include_history=True, empty=False):
+def generation(sequence=1, include_history=True, empty=False, uniform=False, latest_day=None):
     blobs, descriptors = {}, []
 
     def artifact(key, kind, period, data, count):
         sha = hashlib.sha256(data).hexdigest()
-        name = f"{kind.replace('_', '-')}-{period + '-' if period else ''}{sha}.{'zip' if kind.endswith('archive') else 'json'}"
+        stem = "day" if uniform and kind == "day_archive" else kind.replace('_', '-')
+        name = f"{stem}-{period + '-' if period else ''}{sha}.{'zip' if kind.endswith('archive') else 'json'}"
         descriptor = {"logicalKey": key, "logicalType": kind, "period": period,
                       "relativePath": f"V3/Artifacts/{name}", "mimeType": "application/zip" if kind.endswith("archive") else "application/json",
                       "size": len(data), "sha256": sha, "tripCount": count}
@@ -60,12 +61,14 @@ def generation(sequence=1, include_history=True, empty=False):
         return descriptor
 
     months = []
-    latest = day_document("2026-10-04", "dataset-a-2")
+    latest = latest_day or day_document("2026-10-04", "dataset-a-2")
+    latest_date = latest["date"]
+    generated_at = max(1791090120000, latest["generatedAt"])
     if not empty:
-        day = artifact("day:2026-10-04", "day_archive", "2026-10-04", zipped({"2026-10-04.json": encoded(latest)}), 1)
+        day = artifact(f"day:{latest_date}", "day_archive", latest_date, zipped({f"{latest_date}.json": encoded(latest)}), len(latest["trips"]))
         week = artifact("week:2026-W40", "week_index", "2026-W40", encoded({"format": "aaos-triplog-generation-week", "days": [day], "tripCount": 1, "distanceKm": 1.2}), 1)
-        month = artifact("month:2026-10", "month_index", "2026-10", encoded({"format": "aaos-triplog-generation-month", "days": [day], "weeks": [week]}), 1)
-        months.append({"month": "2026-10", "tripCount": 1, "distanceKm": 1.2, "energyKwh": -0.01,
+        month = artifact("month:2026-10", "month_index", "2026-10", encoded({"format": "aaos-triplog-generation-month", "days": [day], "weeks": [week]}), len(latest["trips"]))
+        months.append({"month": "2026-10", "tripCount": len(latest["trips"]), "distanceKm": 1.2, "energyKwh": -0.01,
                        "drivingTimeMs": 60000, "artifact": month})
         if include_history:
             old = day_document("2026-09-02", "dataset-a-1", start=1788343200000)
@@ -73,6 +76,12 @@ def generation(sequence=1, include_history=True, empty=False):
                 "days/2026-09-02.json": encoded(old), "month.json": encoded({"tripCount": 1}),
                 "manifest.json": encoded({"format": "aaos-triplog-month-archive"}), "README.md": b"AAOS Logging",
             }), 1)
+            if uniform:
+                descriptors.remove(old_archive)
+                blobs.pop(old_archive["relativePath"].rsplit("/", 1)[1])
+                old_day = artifact("day:2026-09-02", "day_archive", "2026-09-02", zipped({"2026-09-02.json": encoded(old)}), 1)
+                old_week = artifact("week:2026-W36", "week_index", "2026-W36", encoded({"format": "aaos-triplog-generation-week", "days": [old_day]}), 1)
+                old_archive = artifact("month:2026-09", "month_index", "2026-09", encoded({"format": "aaos-triplog-generation-month", "days": [old_day], "weeks": [old_week]}), 1)
             months.insert(0, {"month": "2026-09", "tripCount": 1, "distanceKm": 1.2, "energyKwh": -0.01, "drivingTimeMs": 60000, "artifact": old_archive})
     total = sum(month["tripCount"] for month in months)
     catalog = {"format": "aaos-triplog-generation-catalog", "formatVersion": 3, "tripSchemaVersion": 17,
@@ -80,13 +89,15 @@ def generation(sequence=1, include_history=True, empty=False):
                "vehicle": {"configuredName": "Test car", "identity": {"make": "Example", "model": "EV", "modelYear": 2026},
                            "specifications": {"nominalEvBatteryCapacityWh": 75000, "evConnectorTypes": [{"code": 1, "name": "TYPE_2"}],
                                               "exteriorDimensionsMm": {"height": 1500}}, "readableStaticProperties": [123]},
-               "months": months, "generatedAt": 1791090120000}
+               "months": months, "generatedAt": generated_at}
+    if uniform:
+        catalog.update(historyRelationVersion=1, mergedDatasetIds=["previous-dataset"])
     artifact("catalog", "catalog", None, encoded(catalog), total)
     manifest = {"format": "aaos-triplog-drive-generation", "formatVersion": 3, "tripSchemaVersion": 17,
                 "datasetId": "dataset-a", "vehicleId": "vehicle-a", "generationId": f"g{sequence}-fixture",
-                "generationSequence": sequence, "previousGenerationId": None, "generatedAt": 1791090120000,
+                "generationSequence": sequence, "previousGenerationId": None, "generatedAt": generated_at,
                 "timeZone": "Europe/Amsterdam", "totalTripCount": total,
-                "latestTripEndTimestamp": latest["trips"][0]["endedAt"] if total else None,
+                "latestTripEndTimestamp": max(t["endedAt"] or t["startedAt"] for t in latest["trips"]) if total else None,
                 "snapshotSha256": "a" * 64, "artifacts": sorted(descriptors, key=lambda a: a["logicalKey"])}
     filename = f"commit-{sequence:020d}-g{sequence}-fixture.json"
     return filename, encoded(manifest), blobs, latest
@@ -121,4 +132,7 @@ class FakeDrive:
 
     async def download(self, file_id, limit=None):
         self.downloads.append(file_id)
+        if file_id != "head" and file_id not in self.blobs:
+            from custom_components.aaos_drive.api import DriveNotFoundError
+            raise DriveNotFoundError("A generation file was removed during the read")
         return self.commit if file_id == "head" else self.blobs[file_id]

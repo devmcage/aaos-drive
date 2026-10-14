@@ -22,6 +22,15 @@ class RefreshButton(AAOSEntity, ButtonEntity):
         # Keep retries possible when a previous import failed.
         return True
 
+    @property
+    def extra_state_attributes(self):
+        attrs = super().extra_state_attributes
+        checked = self.coordinator.last_checked_at
+        attrs.update(last_checked_at=checked.isoformat() if checked else None,
+                     last_successful_sync=self.coordinator.data.checked_at.isoformat(),
+                     latest_trip_at_unix_ms=self.coordinator.data.manifest.raw["latestTripEndTimestamp"])
+        return attrs
+
     async def async_press(self):
         await self.coordinator.async_refresh()
         if not self.coordinator.last_update_success:
