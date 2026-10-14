@@ -5,7 +5,7 @@ from pathlib import Path
 import tempfile
 from types import SimpleNamespace
 import unittest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from . import bootstrap, ha_stub
 from .fixtures import FakeDrive, day_document
@@ -30,6 +30,96 @@ class RefreshTests(unittest.IsolatedAsyncioTestCase):
         patcher = patch("custom_components.aaos_drive.coordinator.asyncio.sleep", self.sleep)
         patcher.start()
         self.addCleanup(patcher.stop)
+
+    def configure_original_identity(self):
+        self.entry.data = {"folder_id":"car","dataset_id":"dataset-a","vehicle_id":"vehicle-a",
+                           "token":{"access_token":"synthetic-test-token"}}
+        self.repo.expected_identity = {"datasetId":"dataset-a","vehicleId":"vehicle-a"}
+        def update_entry(entry, *, data):
+            entry.data = data
+        self.update_entry = Mock(side_effect=update_entry)
+        self.hass.config_entries = SimpleNamespace(async_update_entry=self.update_entry)
+
+    async def test_declared_merged_identity_in_same_folder_preserves_entities_and_trips(self):
+        self.configure_original_identity()
+        self.drive.publish(100)
+        await self.coordinator._async_update_data()
+        unique_id = self.entry.unique_id
+        self.drive.publish(1,uniform=True,dataset_id="dataset-b",vehicle_id="vehicle-b",merged_datasets=["dataset-a"])
+        snapshot = await self.coordinator._async_update_data()
+        self.assertEqual(snapshot.manifest.raw["datasetId"],"dataset-b")
+        self.assertEqual(self.entry.data["folder_id"],"car")
+        self.assertEqual(self.entry.data["dataset_id"],"dataset-b")
+        self.assertEqual(self.entry.data["vehicle_id"],"vehicle-b")
+        self.assertEqual(self.entry.data["token"]["access_token"],"synthetic-test-token")
+        self.assertEqual(self.entry.unique_id,unique_id)
+        self.assertEqual(self.history.overview()["trip_count"],2)
+        self.assertEqual(self.history.trip("dataset-a-1")["tripId"],"dataset-a-1")
+        self.assertEqual(self.repo.accepted_head["sequence"],1)
+        self.assertEqual(self.repo.accepted_head["identity"],{"datasetId":"dataset-b","vehicleId":"vehicle-b"})
+        self.assertEqual(self.repo.expected_identity,self.repo.accepted_head["identity"])
+        self.update_entry.assert_called_once()
+
+    async def test_unrelated_identity_never_replaces_history_or_configuration(self):
+        self.configure_original_identity()
+        before = await self.coordinator._async_update_data()
+        self.drive.publish(2,uniform=True,dataset_id="dataset-b",vehicle_id="vehicle-b")
+        with self.assertRaisesRegex(ha_stub.UpdateFailed,"without a published history merge"):
+            await self.coordinator._async_update_data()
+        self.assertIs(self.repo.snapshot,before)
+        self.assertEqual(self.history.state()["identity"]["datasetId"],"dataset-a")
+        self.assertEqual(self.entry.data["dataset_id"],"dataset-a")
+        self.update_entry.assert_not_called()
+
+    async def test_incomplete_declared_merge_keeps_original_trips_and_source(self):
+        self.configure_original_identity()
+        before = await self.coordinator._async_update_data()
+        self.drive.publish(2,uniform=True,include_history=False,dataset_id="dataset-b",vehicle_id="vehicle-b",merged_datasets=["dataset-a"])
+        with self.assertRaisesRegex(ha_stub.UpdateFailed,"missing previously imported trips"):
+            await self.coordinator._async_update_data()
+        self.assertIs(self.repo.snapshot,before)
+        self.assertEqual(self.history.overview()["trip_count"],2)
+        self.assertEqual(self.entry.data["dataset_id"],"dataset-a")
+        self.update_entry.assert_not_called()
+
+    async def test_identical_generation_ids_across_datasets_do_not_skip_migration(self):
+        self.configure_original_identity()
+        await self.coordinator._async_update_data()
+        before = self.coordinator.visibility_generation
+        old_cursor = self.history.points("telemetry.speedKph", limit=1)["next_cursor"]
+        self.drive.publish(1,uniform=True,dataset_id="dataset-b",vehicle_id="vehicle-b",merged_datasets=["dataset-a"])
+        await self.coordinator._async_update_data()
+        self.assertEqual(self.history.state()["generation_id"],"g1-fixture")
+        self.assertEqual(self.history.state()["identity"]["datasetId"],"dataset-b")
+        self.assertNotEqual(self.coordinator.visibility_generation,before)
+        with self.assertRaisesRegex(ValueError,"History changed"):
+            self.history.points("telemetry.speedKph", limit=1, cursor=old_cursor)
+
+    async def test_upgrade_from_legacy_history_still_checks_preserved_trips(self):
+        self.configure_original_identity()
+        await self.coordinator._async_update_data()
+        with self.history.connect() as db:
+            db.execute("DELETE FROM meta WHERE key='identity'")
+        self.drive.publish(2,uniform=True,include_history=False,dataset_id="dataset-b",vehicle_id="vehicle-b",merged_datasets=["dataset-a"])
+        with self.assertRaisesRegex(ha_stub.UpdateFailed,"missing previously imported trips"):
+            await self.coordinator._async_update_data()
+        self.assertEqual(self.history.overview()["trip_count"],2)
+        self.update_entry.assert_not_called()
+        self.drive.publish(3,uniform=True,dataset_id="dataset-b",vehicle_id="vehicle-b",merged_datasets=["dataset-a"])
+        await self.coordinator._async_update_data()
+        self.assertEqual(self.history.state()["identity"]["datasetId"],"dataset-b")
+
+    async def test_restart_rejects_rollback_in_the_new_merged_dataset(self):
+        self.configure_original_identity()
+        self.drive.publish(100)
+        await self.coordinator._async_update_data()
+        self.drive.publish(3,uniform=True,dataset_id="dataset-b",vehicle_id="vehicle-b",merged_datasets=["dataset-a"])
+        await self.coordinator._async_update_data()
+        restarted = DriveRepository(self.drive,"car",asyncio.to_thread,self.repo.expected_identity)
+        restarted.accepted_head = dict(self.repo.accepted_head)
+        self.drive.publish(2,uniform=True,dataset_id="dataset-b",vehicle_id="vehicle-b",merged_datasets=["dataset-a"])
+        with self.assertRaisesRegex(ValueError,"older"):
+            await restarted.refresh()
 
     async def test_current_app_uniform_days_and_later_trip_import_after_upgrade(self):
         await self.coordinator._async_update_data()

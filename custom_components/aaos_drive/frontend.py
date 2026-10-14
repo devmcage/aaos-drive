@@ -26,13 +26,18 @@ def coordinator(hass, entry_id):
 
 def sync_status(target):
     snapshot = target.data
+    folder = target.entry.data.get("folder_id")
     return {
         "generation_id": snapshot.manifest.raw["generationId"] if snapshot else None,
+        "generation_revision": getattr(snapshot, "manifest_hash", None) if snapshot else None,
         "drive_available": target.last_update_success,
         "last_checked_at": target.last_checked_at.isoformat() if target.last_checked_at else None,
         "last_successful_sync": snapshot.checked_at.isoformat() if snapshot else None,
         "latest_trip_at": snapshot.manifest.raw["latestTripEndTimestamp"] if snapshot else None,
         "statistics_error": target.statistics_error,
+        "source_trip_count": snapshot.manifest.raw["totalTripCount"] if snapshot else 0,
+        "generation_sequence": snapshot.manifest.raw["generationSequence"] if snapshot else None,
+        "drive_folder_url": f"https://drive.google.com/drive/folders/{folder}" if folder else None,
     }
 
 
@@ -137,4 +142,4 @@ async def async_setup_frontend(hass):
     ])
     await async_register_panel(hass, frontend_url_path="aaos-history", webcomponent_name="aaos-history-panel",
         sidebar_title="AAOS history", sidebar_icon="mdi:chart-timeline-variant",
-        module_url="/aaos_drive/history.js?v=0.4.3", embed_iframe=False, require_admin=True)
+        module_url="/aaos_drive/history.js?v=0.4.4", embed_iframe=False, require_admin=True)

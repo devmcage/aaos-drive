@@ -42,7 +42,8 @@ class FrontendTests(unittest.IsolatedAsyncioTestCase):
         self.module = importlib.reload(self.module)
         self.now = datetime(2026, 10, 14, 12, tzinfo=timezone.utc)
         self.target = SimpleNamespace(lock=asyncio.Lock(), last_update_success=True,
-            data=self.snapshot("g1"), last_checked_at=self.now, statistics_error=None)
+            data=self.snapshot("g1"), last_checked_at=self.now, statistics_error=None,
+            entry=SimpleNamespace(data={"folder_id":"car"}))
         self.entry = SimpleNamespace(domain="aaos_drive", state="loaded", runtime_data=self.target)
         self.hass = SimpleNamespace(config_entries=SimpleNamespace(async_get_entry=lambda _: self.entry))
         self.connection = SimpleNamespace(send_result=Mock(), send_error=Mock())
@@ -50,7 +51,7 @@ class FrontendTests(unittest.IsolatedAsyncioTestCase):
 
     def snapshot(self, generation):
         return SimpleNamespace(manifest=SimpleNamespace(raw={"generationId": generation,
-            "latestTripEndTimestamp": 1791968460000}), checked_at=self.now)
+            "latestTripEndTimestamp": 1791968460000,"totalTripCount":2,"generationSequence":1}), checked_at=self.now)
 
     async def test_refresh_waits_for_import_before_returning_new_generation(self):
         async def update():

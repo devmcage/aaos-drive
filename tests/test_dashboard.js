@@ -23,7 +23,7 @@ function card() {
   const controls = {
     vehicle: select("car"), field: select("telemetry.speedKph"), trip: select(),
     from: {value: "2026-10-04T13:14"}, through: {value: "2026-10-04T13:23"},
-    more: {}, csv: {}, reload:{}, coverage:{}, syncinfo:{}, search:{value:""}, older:{}, tripinfo:{},
+    more: {}, csv: {}, reload:{}, coverage:{}, syncinfo:{}, drivefolder:{}, sourcecount:{}, search:{value:""}, older:{}, tripinfo:{},
   };
   target.$ = key => controls[key];
   target.status = text => target.message=text;
@@ -53,10 +53,10 @@ async function run() {
       next_cursor: query.cursor ? null : {page: 2}};
   };
   await target.loadPoints();
-  assert.equal(calls.length, 3);
+  assert.equal(calls.length, 6);
   assert.ok(calls.every(query => query.trip_id === "trip-a"));
-  assert.equal(target.moreAvailable, true);
-  // Editing controls must not change the query while paging an existing selection.
+  assert.equal(target.moreAvailable, false);
+  // All pages load automatically. A later edit cannot trigger more pages for the old selection.
   target.$("trip").value = "trip-b";
   await target.loadPoints(true);
   assert.equal(calls.length, 6);
@@ -109,6 +109,29 @@ async function run() {
   assert.equal(timers.size,1);
   live.disconnectedCallback();assert.equal(timers.size,0);
   assert.equal(statusCalls,3);
-  console.log("Dashboard checks passed: trip queries, shared pagination, Drive refresh, automatic history updates, preserved ranges and timer cleanup.");
+  const complete=card();
+  complete.info={drive_available:true,fields:[{field:"telemetry.speedKph"}]};
+  let pageCalls=0;
+  complete.call=async(type,query)=>{
+    pageCalls++;
+    const page=query.cursor?.page||1;
+    return {field:query.field,generation_id:"full",points:Array.from({length:page===3?5:2000},(_,i)=>({time:Date.UTC(2026,9,page===3?12:page===2?8:4)+i,value:i})),next_cursor:page<3?{page:page+1}:null};
+  };
+  await complete.loadPoints();
+  assert.equal(pageCalls,3);
+  assert.equal(complete.samples.length,4005);
+  assert.equal(new Date(complete.samples.at(-1).time).getUTCDate(),12);
+  assert.equal(complete.moreAvailable,false);
+  const changing=card();
+  changing.info=complete.info;changing.samples=[{value:"previous-complete-selection"}];
+  changing.call=async(type,query)=>({field:query.field,generation_id:query.cursor?"g2":"g1",points:[{value:1}],next_cursor:query.cursor?null:{page:2}});
+  await changing.loadPoints();
+  assert.equal(changing.samples[0].value,"previous-complete-selection");
+  assert.match(changing.message,/History changed/);
+  changing.call=async(type,query)=>({field:query.field,generation_id:"same-id",generation_revision:query.cursor?"new-dataset":"old-dataset",points:[{value:1}],next_cursor:query.cursor?null:{page:2}});
+  await changing.loadPoints();
+  assert.equal(changing.samples[0].value,"previous-complete-selection");
+  assert.match(changing.message,/History changed/);
+  console.log("Dashboard checks passed: complete automatic pagination through the final date, mixed-generation rejection, Drive refresh, preserved ranges and timer cleanup.");
 }
 run().catch(error => {console.error(error);process.exitCode = 1;});

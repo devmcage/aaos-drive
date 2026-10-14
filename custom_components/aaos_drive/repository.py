@@ -53,19 +53,21 @@ class DriveRepository:
         raw = await self.drive.download(head["id"], limit=16 * 1024 * 1024)
         manifest = await self.executor(Manifest.parse, raw, head["name"])
         manifest_hash = hashlib.sha256(raw).hexdigest()
-        if any(manifest.raw.get(key) != value for key, value in self.expected_identity.items()):
-            raise InvalidExport("The selected folder contains a different vehicle or dataset")
-        if self.accepted_head:
+        identity = {key: manifest.raw[key] for key in ("datasetId", "vehicleId")}
+        previous = self.expected_identity or ({key: self.snapshot.manifest.raw[key] for key in identity} if self.snapshot else {})
+        changed_identity = any(identity.get(key) != value for key, value in previous.items())
+        # Counters belong to a dataset; preserve rollback checks in the adopted
+        # namespace even if a restart precedes the config-entry identity update.
+        checkpoint_identity = (self.accepted_head or {}).get("identity")
+        same_checkpoint = checkpoint_identity == identity if checkpoint_identity else not changed_identity
+        if self.accepted_head and same_checkpoint:
             sequence = self.accepted_head["sequence"]
             if newest < sequence or newest == sequence and manifest_hash != self.accepted_head["manifest_hash"]:
                 raise InvalidExport("Drive returned an older or altered committed generation")
-        if self.snapshot:
-            previous = self.snapshot.manifest.raw
-            if any(manifest.raw[k] != previous[k] for k in ("datasetId", "vehicleId")):
-                raise InvalidExport("Drive dataset or vehicle identity changed")
-            if newest < previous["generationSequence"]:
+        if self.snapshot and all(self.snapshot.manifest.raw[key] == value for key, value in identity.items()):
+            if newest < self.snapshot.manifest.raw["generationSequence"]:
                 raise InvalidExport("Drive returned an older generation; retaining the last snapshot")
-            if newest == previous["generationSequence"] and manifest_hash != self._manifest_hash:
+            if newest == self.snapshot.manifest.raw["generationSequence"] and manifest_hash != self._manifest_hash:
                 raise InvalidExport("An immutable commit changed")
         files = {}
         for file in await self.drive.children(artifacts_id):
@@ -87,6 +89,9 @@ class DriveRepository:
         catalog_artifact = next(a for a in manifest.artifacts if a.kind == "catalog")
         catalog = await self.executor(json_object, await self._artifact_bytes(catalog_artifact, files))
         await self.executor(validate_catalog, catalog, manifest)
+        if changed_identity and (catalog.get("historyRelationVersion") != 1 or
+                                 not previous.get("datasetId") or previous["datasetId"] not in catalog.get("mergedDatasetIds", [])):
+            raise InvalidExport("The selected folder contains a different vehicle or dataset without a published history merge")
         archives = sorted((a for a in manifest.artifacts if a.kind in {"day_archive", "month_archive"} and a.trip_count),
                           key=lambda a: a.period, reverse=True)
         trip = None
@@ -102,7 +107,8 @@ class DriveRepository:
             raise InvalidExport("Latest trip does not match the committed snapshot")
         if trip is None and manifest.raw["totalTripCount"]:
             raise InvalidExport("Missing detailed trip archives")
-        snapshot = Snapshot(manifest, catalog, trip, datetime.now(timezone.utc), manifest_hash, files, commits_id)
+        snapshot = Snapshot(manifest, catalog, trip, datetime.now(timezone.utc), manifest_hash, files, commits_id,
+                            dict(previous) if changed_identity else None)
         await self.ensure_current(snapshot)
         if accept:
             self.accept_snapshot(snapshot)
@@ -132,7 +138,8 @@ class DriveRepository:
 
     def accept_snapshot(self, snapshot: Snapshot) -> None:
         self.snapshot, self._manifest_hash, self._files = snapshot, snapshot.manifest_hash, snapshot.artifact_files
-        self.accepted_head = {"sequence": snapshot.manifest.raw["generationSequence"], "manifest_hash": snapshot.manifest_hash}
+        self.accepted_head = {"sequence": snapshot.manifest.raw["generationSequence"], "manifest_hash": snapshot.manifest_hash,
+                              "identity": {key: snapshot.manifest.raw[key] for key in ("datasetId", "vehicleId")}}
 
     async def archive(self, snapshot: Snapshot, artifact: Artifact) -> list[dict]:
         data = await self._artifact_bytes(artifact, snapshot.artifact_files or self._files)
@@ -190,6 +197,10 @@ def validate_catalog(catalog: dict, manifest: Manifest) -> None:
         raise InvalidExport("Catalog identity does not match commit")
     if catalog.get("generatedAt") != manifest.raw["generatedAt"]:
         raise InvalidExport("Catalog generation time does not match commit")
+    aliases = catalog.get("mergedDatasetIds", [])
+    if not isinstance(aliases, list) or any(not isinstance(item, str) or not item for item in aliases) or \
+            len(set(aliases)) != len(aliases) or manifest.raw["datasetId"] in aliases:
+        raise InvalidExport("Invalid merged history identities")
     if not isinstance(catalog.get("vehicle"), dict) or not isinstance(catalog.get("months"), list):
         raise InvalidExport("Missing vehicle or month metadata")
     months = catalog["months"]

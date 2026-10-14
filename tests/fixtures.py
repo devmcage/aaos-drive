@@ -4,7 +4,7 @@ import copy
 import hashlib
 import io
 import json
-from zipfile import ZipFile, ZIP_DEFLATED
+from zipfile import ZipFile, ZipInfo, ZIP_DEFLATED
 
 from . import bootstrap
 from custom_components.aaos_drive.const import TELEMETRY_FIELDS
@@ -18,7 +18,10 @@ def zipped(files):
     buffer = io.BytesIO()
     with ZipFile(buffer, "w", ZIP_DEFLATED) as archive:
         for name, data in files.items():
-            archive.writestr(name, data)
+            # Unchanged exported content must have stable hashes in cache tests.
+            entry = ZipInfo(name, date_time=(2026, 1, 1, 0, 0, 0))
+            entry.compress_type = ZIP_DEFLATED
+            archive.writestr(entry, data)
     return buffer.getvalue()
 
 
@@ -46,7 +49,8 @@ def day_document(date, trip_id, start=1791090000000):
             "datasetId": "dataset-a", "carName": "Test car", "generatedAt": start + 120000, "trips": [trip]}
 
 
-def generation(sequence=1, include_history=True, empty=False, uniform=False, latest_day=None):
+def generation(sequence=1, include_history=True, empty=False, uniform=False, latest_day=None,
+               dataset_id="dataset-a", vehicle_id="vehicle-a", merged_datasets=None):
     blobs, descriptors = {}, []
 
     def artifact(key, kind, period, data, count):
@@ -61,7 +65,8 @@ def generation(sequence=1, include_history=True, empty=False, uniform=False, lat
         return descriptor
 
     months = []
-    latest = latest_day or day_document("2026-10-04", "dataset-a-2")
+    latest = copy.deepcopy(latest_day) if latest_day else day_document("2026-10-04", "dataset-a-2")
+    latest["datasetId"] = dataset_id
     latest_date = latest["date"]
     generated_at = max(1791090120000, latest["generatedAt"])
     if not empty:
@@ -72,6 +77,7 @@ def generation(sequence=1, include_history=True, empty=False, uniform=False, lat
                        "drivingTimeMs": 60000, "artifact": month})
         if include_history:
             old = day_document("2026-09-02", "dataset-a-1", start=1788343200000)
+            old["datasetId"] = dataset_id
             old_archive = artifact("archive:2026-09", "month_archive", "2026-09", zipped({
                 "days/2026-09-02.json": encoded(old), "month.json": encoded({"tripCount": 1}),
                 "manifest.json": encoded({"format": "aaos-triplog-month-archive"}), "README.md": b"AAOS Logging",
@@ -85,16 +91,16 @@ def generation(sequence=1, include_history=True, empty=False, uniform=False, lat
             months.insert(0, {"month": "2026-09", "tripCount": 1, "distanceKm": 1.2, "energyKwh": -0.01, "drivingTimeMs": 60000, "artifact": old_archive})
     total = sum(month["tripCount"] for month in months)
     catalog = {"format": "aaos-triplog-generation-catalog", "formatVersion": 3, "tripSchemaVersion": 17,
-               "datasetId": "dataset-a", "vehicleId": "vehicle-a", "timeZone": "Europe/Amsterdam", "carName": "Test car",
+               "datasetId": dataset_id, "vehicleId": vehicle_id, "timeZone": "Europe/Amsterdam", "carName": "Test car",
                "vehicle": {"configuredName": "Test car", "identity": {"make": "Example", "model": "EV", "modelYear": 2026},
                            "specifications": {"nominalEvBatteryCapacityWh": 75000, "evConnectorTypes": [{"code": 1, "name": "TYPE_2"}],
                                               "exteriorDimensionsMm": {"height": 1500}}, "readableStaticProperties": [123]},
                "months": months, "generatedAt": generated_at}
     if uniform:
-        catalog.update(historyRelationVersion=1, mergedDatasetIds=["previous-dataset"])
+        catalog.update(historyRelationVersion=1, mergedDatasetIds=list(merged_datasets) if merged_datasets is not None else ["previous-dataset"])
     artifact("catalog", "catalog", None, encoded(catalog), total)
     manifest = {"format": "aaos-triplog-drive-generation", "formatVersion": 3, "tripSchemaVersion": 17,
-                "datasetId": "dataset-a", "vehicleId": "vehicle-a", "generationId": f"g{sequence}-fixture",
+                "datasetId": dataset_id, "vehicleId": vehicle_id, "generationId": f"g{sequence}-fixture",
                 "generationSequence": sequence, "previousGenerationId": None, "generatedAt": generated_at,
                 "timeZone": "Europe/Amsterdam", "totalTripCount": total,
                 "latestTripEndTimestamp": max(t["endedAt"] or t["startedAt"] for t in latest["trips"]) if total else None,

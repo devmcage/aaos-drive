@@ -46,9 +46,9 @@ class OAuth2FlowHandler(config_entry_oauth2_flow.AbstractOAuth2FlowHandler, doma
         if self.source == SOURCE_REAUTH:
             entry = self._get_reauth_entry()
             try:
-                snapshot = await self._repository(entry.data["folder_id"]).refresh()
-                if snapshot.manifest.raw["datasetId"] != entry.data["dataset_id"] or snapshot.manifest.raw["vehicleId"] != entry.data["vehicle_id"]:
-                    return self.async_abort(reason="wrong_dataset")
+                repository = self._repository(entry.data["folder_id"])
+                repository.expected_identity = {"datasetId": entry.data["dataset_id"], "vehicleId": entry.data["vehicle_id"]}
+                await repository.refresh()
             except (DriveError, InvalidExport, aiohttp.ClientError, TimeoutError):
                 return self.async_abort(reason="cannot_read_folder")
             return self.async_update_reload_and_abort(entry, data_updates=data)
@@ -65,6 +65,13 @@ class OAuth2FlowHandler(config_entry_oauth2_flow.AbstractOAuth2FlowHandler, doma
             try:
                 selected = folder_id(user_input["folder_id"])
                 snapshot = await self._repository(selected).refresh()
+                for configured in self._async_current_entries():
+                    same_source = configured.data.get("dataset_id") == snapshot.manifest.raw["datasetId"] and \
+                        configured.data.get("vehicle_id") == snapshot.manifest.raw["vehicleId"]
+                    linked_source = configured.data.get("folder_id") == selected and \
+                        configured.data.get("dataset_id") in snapshot.catalog.get("mergedDatasetIds", [])
+                    if same_source or linked_source:
+                        return self.async_abort(reason="already_configured")
                 await self.async_set_unique_id(f"{snapshot.manifest.raw['vehicleId']}:{snapshot.manifest.raw['datasetId']}")
                 self._abort_if_unique_id_configured()
                 return self.async_create_entry(

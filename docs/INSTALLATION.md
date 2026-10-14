@@ -2,7 +2,7 @@
 
 AAOS Logging Drive imports your car's completed, synced trips from Google Drive into Home Assistant. It creates a car device with measured sensors, retains every exported sample, and supplies a trip dashboard and historical numeric statistics.
 
-This guide covers integration **0.4.3**, Home Assistant **2026.9 or later**, AAOS Logging Drive sync **V3**, day-file format **1** and trip schema **17**. Its section order follows the [Home Assistant Google Drive guide](https://www.home-assistant.io/integrations/google_drive/). The setup steps below apply to **AAOS Logging Drive**, the custom integration supplied in this package.
+This guide covers integration **0.4.4**, Home Assistant **2026.9 or later**, AAOS Logging Drive sync **V3**, day-file format **1** and trip schema **17**. Its section order follows the [Home Assistant Google Drive guide](https://www.home-assistant.io/integrations/google_drive/). The setup steps below apply to **AAOS Logging Drive**, the custom integration supplied in this package.
 
 Each household uses its own Google account and OAuth credentials. The package includes no registered client ID or secret. You do not need to operate a separate website or authorization service.
 
@@ -125,7 +125,7 @@ HACS manages the files in `custom_components/aaos_drive`, including the built-in
 ### Install the custom integration files
 
 1. Make a Home Assistant backup before replacing an existing installation.
-2. Extract `aaos-drive-0.4.3.zip` on your computer.
+2. Extract `aaos-drive-0.4.4.zip` on your computer.
 3. Open Home Assistant's configuration directory using your normal file-access method. Home Assistant OS normally exposes it as `/config`. For a Container installation, use the host folder mounted at `/config`.
 4. Create `custom_components` inside that configuration directory if it does not exist.
 5. Copy the **whole** `aaos_drive` folder from the ZIP's `custom_components` directory into it. The result must include:
@@ -184,6 +184,8 @@ Changing options reloads the integration. Press the device's **Refresh Drive dat
 
 The same **Refresh Drive data** button is available inside the AAOS trip dashboard. It waits for Google Drive to be checked and the complete new history to be imported before updating the charts. It replaces the earlier local-only **Reload data** button.
 
+The dashboard links to the configured **Drive folder** and shows the accepted export’s trip count and generation sequence. Compare these with the imported trip count and latest recorded trip when checking synchronization.
+
 The dashboard displays three separate times:
 
 - **Drive checked**: when the most recent check began, including a failed attempt.
@@ -194,7 +196,7 @@ While open, the dashboard checks Home Assistant's local import status every minu
 
 The importer retries temporary read failures and generation-publication races with bounded backoff. Failed imports retain the last complete local history. Power corrections and changes to existing trips are detected through content hashes, even when their dates and the total trip count do not change. No database deletion or forced reimport is required.
 
-The current AAOS Logging 1.00.5 writers use compressed daily archives for all months and can publish combined histories with `mergedDatasetIds`. Both these exports and the earlier monthly archive layout are supported. If the app's **Reconnect or merge history** choice changes the destination vehicle folder, add the new destination folder as an AAOS Logging Drive entry in Home Assistant. Verify the combined history before removing the old entry.
+The current AAOS Logging 1.00.5 writers use compressed daily archives for all months and can publish combined histories with `mergedDatasetIds`. Both these exports and the earlier monthly archive layout are supported. When the dataset identity changes inside the same configured folder, the integration follows it only if the verified catalog explicitly includes the earlier dataset in its merged history and every previously imported trip is still present. Existing entity IDs and the folder setting are preserved; users do not need to add the integration again. If the app's **Reconnect or merge history** choice changes the destination vehicle folder, add the new destination folder as an AAOS Logging Drive entry in Home Assistant. Verify the combined history before removing the old entry.
 
 ## Sensors
 
@@ -213,7 +215,7 @@ Month-specific summaries, trip-summary entities and static specification entitie
 1. Open **AAOS history** in the sidebar as an administrator.
 2. Select the car, then choose a recorded trip.
 3. Select a field such as **Telemetry speed kph**. The chart uses original timestamps within that trip's exact bounds.
-4. Use **Load more samples** if another page is available. The chart initially retrieves up to 2,000 samples per field.
+4. Wait for **All matching samples loaded**. The charts automatically retrieve all pages for the selected sensors and period; a 2,000-sample API page does not limit the chart to early trips.
 5. Use **Export full selected history (CSV)** to download all pages for the selected primary field and trip/date range. CSV preserves the original typed value in `value_json`.
 
 The table displays up to the last 500 loaded primary-field records. That display limit does not remove samples from storage or the full export.
@@ -222,7 +224,7 @@ The table displays up to the last 500 loaded primary-field records. That display
 
 The sidebar works immediately after installation. For a dashboard card:
 
-1. Add `/aaos_drive/history.js?v=0.4.3` as a dashboard resource of type **JavaScript module**. In the dashboard resources screen, use **Add resource**; enable Advanced mode in your profile if the resource settings are not visible.
+1. Add `/aaos_drive/history.js?v=0.4.4` as a dashboard resource of type **JavaScript module**. In the dashboard resources screen, use **Add resource**; enable Advanced mode in your profile if the resource settings are not visible.
 2. Edit your dashboard, add a **Manual** card, and paste:
 
    ```yaml
@@ -239,7 +241,7 @@ Vehicle selection works without a fixed entry ID. To preselect one entry, add `c
 
 ### Use Home Assistant's native History or Statistics graph
 
-Select a measured numeric entity in **History** and choose the dates on which the car recorded data. Recognized numeric fields have original-hour statistics linked to their actual entity IDs. Find the real entity ID in its settings; renamed entities are supported.
+Use a **Statistics graph** card with an **hour** or longer period and choose a measured numeric entity. Recognized numeric fields have original-hour statistics linked to their actual entity IDs. Find the real entity ID in its settings; renamed entities are supported. The native **History** page displays recent Recorder state history and falls back to long-term statistics after older state history is purged. The integration imports hourly statistics rather than backdated raw states, so native History may show a flat recent period even when the original trip data is present. See Home Assistant’s [long-term statistics guide](https://www.home-assistant.io/docs/configuration/long-term-statistics/).
 
 For example, replace the entity ID below with your speed entity:
 
@@ -297,9 +299,9 @@ Drive files remain in the account because all integration access is read-only. R
 | The folder does not contain a supported snapshot | Select the car folder containing `Sync/V3`, not Backup or an exported ZIP. Complete a car-side V3 sync and check that the commit's referenced artifacts are present. |
 | Unable to read Google Drive / cannot connect | Check Drive API is enabled in the selected project, network connectivity, the signing-in account and download permissions on the chosen folder. |
 | Vehicle dataset already configured | Use the existing entry. A second entry for the same vehicle/dataset is prevented. |
-| Wrong dataset when reconnecting | Reauthorize the account that can access the original vehicle folder. Reauthentication must restore the same vehicle/dataset. |
+| Different dataset when reconnecting | Reauthorize the account that can access the configured vehicle folder. Reauthentication accepts the original dataset or a verified export explicitly declaring it as merged history; unrelated datasets are rejected. |
 | Sensor is unknown or hidden | In the trip dashboard or full-trip action, inspect whether the field has real values. `null` stays unknown; no-data fields default to hidden. Check AAOS app permissions/support if the car never supplies the field. |
-| Speed History is empty despite recorded trips | Select the actual speed entity and recorded dates; restart after upgrading, press Refresh Drive data and refresh the History page. Check Logs for `AAOS statistics import failed`. Compare with the raw trip dashboard. Do not delete configuration or history to force a reimport. |
+| Speed History is empty despite recorded trips | Use a Statistics graph with an hour or longer period for imported numeric history; use AAOS history for every raw sample. Restart after upgrading, press Refresh Drive data and refresh the browser. Check Logs for `AAOS statistics import failed`. Compare with the raw trip dashboard. Do not delete configuration or history to force a reimport. |
 | Native graph is empty for a boolean, enum or unitless counter | Use AAOS history for those original samples. Native imported statistics apply to recognized numeric measurement units. |
 | Data looks old, even after pressing Refresh | Compare `recorded_at_unix_ms` with the current time. A successful Drive check does not create new car readings. Complete a new trip and car-side sync. |
 | Sidebar or card reports unauthorized | Use a Home Assistant administrator account; the full-history API is restricted to administrators. |
@@ -319,4 +321,4 @@ When reporting a problem, include the integration/Home Assistant versions, the a
 - [Google Drive scopes](https://developers.google.com/workspace/drive/api/guides/api-specific-auth): what read-only access permits.
 - [Google personal-use verification exception](https://support.google.com/cloud/answer/13464323?hl=en): personal OAuth app rules.
 
-Google and Home Assistant can change console labels and screens. Use the linked official instructions if a label differs. Integration-specific steps and defaults in this guide match version 0.4.3.
+Google and Home Assistant can change console labels and screens. Use the linked official instructions if a label differs. Integration-specific steps and defaults in this guide match version 0.4.4.

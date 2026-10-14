@@ -49,17 +49,23 @@ class AAOSCoordinator(DataUpdateCoordinator):
                         await asyncio.sleep(2 ** attempt)
                 self.repository.accept_snapshot(snapshot)
                 snapshot.checked_at = datetime.now(timezone.utc)
+                visibility_generation = (snapshot.manifest.raw["datasetId"], snapshot.manifest.raw["generationId"])
                 if self.history is not None:
-                    if self.visibility_generation != snapshot.manifest.raw["generationId"]:
+                    if self.visibility_generation != visibility_generation:
                         fields_with_data = await self.hass.async_add_executor_job(self.history.fields_with_data)
                     else:
                         fields_with_data = self.fields_with_data
                 if self.saved_head != self.repository.accepted_head:
                     await self.store.async_save(self.repository.accepted_head)
                     self.saved_head = dict(self.repository.accepted_head)
+                if snapshot.previous_identity is not None:
+                    identity = {key: snapshot.manifest.raw[key] for key in ("datasetId", "vehicleId")}
+                    self.hass.config_entries.async_update_entry(self.entry, data={**self.entry.data,
+                        "dataset_id": identity["datasetId"], "vehicle_id": identity["vehicleId"]})
+                    self.repository.expected_identity = identity
                 if self.history is not None:
                     self.fields_with_data = fields_with_data
-                    self.visibility_generation = snapshot.manifest.raw["generationId"]
+                    self.visibility_generation = visibility_generation
                 if self.history is not None and self.hass.state is CoreState.running:
                     await self._async_statistics()
                 return snapshot

@@ -223,6 +223,7 @@ class Snapshot:
     manifest_hash: str | None = None
     artifact_files: dict = field(default_factory=dict)
     commit_folder_id: str | None = None
+    previous_identity: dict | None = None
 
     @cached_property
     def telemetry(self) -> dict:

@@ -137,6 +137,41 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
         result = await flow.async_oauth_create_entry({"token": {"scope": READ_SCOPE}})
         self.assertEqual(result["reason"], "refresh_token_required")
 
+    async def test_setup_does_not_duplicate_a_merged_source_with_stable_entry_id(self):
+        drive = FakeDrive()
+        drive.publish(2, uniform=True, dataset_id="dataset-b", vehicle_id="vehicle-b", merged_datasets=["dataset-a"])
+        for configured_dataset in ("dataset-a", "dataset-b"):
+            flow = OAuth2FlowHandler()
+            flow._repository = lambda folder: DriveRepository(drive, folder, asyncio.to_thread)
+            flow._async_current_entries = lambda: [SimpleNamespace(unique_id="vehicle-a:dataset-a", data={
+                "folder_id":"car", "dataset_id":configured_dataset,
+                "vehicle_id":"vehicle-b" if configured_dataset == "dataset-b" else "vehicle-a"})]
+            result = await flow.async_step_folder({"folder_id":"car"})
+            self.assertEqual(result["reason"], "already_configured")
+
+    async def test_reauth_accepts_only_a_published_merge_in_the_configured_folder(self):
+        from unittest.mock import Mock
+        self.entry.data["folder_id"] = "car"
+        for aliases, accepted in ((["dataset-a"], True), ([], False)):
+            drive = FakeDrive()
+            drive.publish(2, uniform=True, dataset_id="dataset-b", vehicle_id="vehicle-b", merged_datasets=aliases)
+            repository = DriveRepository(drive, "car", asyncio.to_thread)
+            flow = OAuth2FlowHandler()
+            flow.source = "reauth"
+            flow._get_reauth_entry = lambda: self.entry
+            flow._repository = Mock(return_value=repository)
+            flow.async_update_reload_and_abort = Mock(return_value={"type":"abort", "reason":"reauth_successful"})
+            data = {"token":{"scope":READ_SCOPE, "refresh_token":"synthetic-test-token"}}
+            result = await flow.async_oauth_create_entry(data)
+            self.assertEqual(result["reason"], "reauth_successful" if accepted else "cannot_read_folder")
+            self.assertEqual(self.entry.unique_id, "vehicle-a:dataset-a")
+            self.assertEqual(self.entry.data["dataset_id"], "dataset-a")
+            self.assertEqual(repository.expected_identity, {"datasetId":"dataset-a", "vehicleId":"vehicle-a"})
+            if accepted:
+                flow.async_update_reload_and_abort.assert_called_once_with(self.entry, data_updates=data)
+            else:
+                flow.async_update_reload_and_abort.assert_not_called()
+
     async def test_coordinator_does_not_replace_last_state_when_import_fails(self):
         repository = SimpleNamespace(accepted_head=None, refresh=AsyncMock(side_effect=InvalidExport("missing artifact")))
         store = SimpleNamespace(async_save=AsyncMock())

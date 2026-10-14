@@ -28,7 +28,11 @@ class RefreshButton(AAOSEntity, ButtonEntity):
         checked = self.coordinator.last_checked_at
         attrs.update(last_checked_at=checked.isoformat() if checked else None,
                      last_successful_sync=self.coordinator.data.checked_at.isoformat(),
-                     latest_trip_at_unix_ms=self.coordinator.data.manifest.raw["latestTripEndTimestamp"])
+                     latest_trip_at_unix_ms=self.coordinator.data.manifest.raw["latestTripEndTimestamp"],
+                     source_trip_count=self.coordinator.data.manifest.raw["totalTripCount"],
+                     generation_sequence=self.coordinator.data.manifest.raw["generationSequence"],
+                     drive_folder_url=f"https://drive.google.com/drive/folders/{self.coordinator.entry.data['folder_id']}"
+                         if self.coordinator.entry.data.get("folder_id") else None)
         return attrs
 
     async def async_press(self):

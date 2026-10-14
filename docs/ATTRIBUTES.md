@@ -1,6 +1,6 @@
 # AAOS Logging Drive — attributes and data reference
 
-This document explains the data available in integration **0.4.3**, using AAOS Logging's Drive sync **V3** and trip schema **17**. It covers all **69 telemetry fields**, route/weather fields, trip measurements, vehicle specifications, export metadata and integration-added entity attributes. Installation and dashboard setup are described in [INSTALLATION.md](INSTALLATION.md).
+This document explains the data available in integration **0.4.4**, using AAOS Logging's Drive sync **V3** and trip schema **17**. It covers all **69 telemetry fields**, route/weather fields, trip measurements, vehicle specifications, export metadata and integration-added entity attributes. Installation and dashboard setup are described in [INSTALLATION.md](INSTALLATION.md).
 
 The names below are the exact source/history keys. Home Assistant displays readable names, such as **Telemetry battery percent**, and assigns entity IDs that may vary between installations. Use the entity's `history_field` attribute to find its source key.
 
@@ -314,6 +314,9 @@ Open an entity under **Developer tools → States** to inspect its current state
 | `last_checked_at` | On the Refresh Drive data button, UTC ISO time at which the most recent Drive check began; also available to the trip dashboard. Failed checks advance this time. |
 | `last_successful_sync` | On the Refresh Drive data button and dashboard, UTC ISO time at which the latest complete check/import finished. Checking an unchanged generation still advances it. |
 | `latest_trip_at_unix_ms` | On the Refresh Drive data button, ending time of the latest accepted trip in Unix milliseconds, or null for empty history. The dashboard displays the corresponding `latest_trip_at` status field as a local date/time. |
+| `source_trip_count` | On the refresh button and dashboard status, total trips declared by the accepted, verified Drive export. Compare with the local imported trip count. |
+| `generation_sequence` | Accepted export’s generation counter. It belongs to that dataset; a declared merge can adopt a different dataset’s counter. |
+| `drive_folder_url` | Link to the configured Google Drive car folder. Available on the refresh button and dashboard status; does not grant public access to that folder. |
 | `raw_value` | Added when the displayed entity value is converted, structured or truncated: preserves its original form. It is not attached to every ordinary scalar reading. |
 | `value_encoding` | Added to many enum fields to state that they contain a raw AAOS property code with no inferred translation. See the enum interpretation section. |
 | `location_source` | Position-tracker attribute identifying its location as `last synced trip`. It is not live GPS. |
@@ -517,6 +520,7 @@ The sidebar's authenticated field response additionally includes a per-field `st
 | Key | Meaning |
 | --- | --- |
 | `generation_id` | Generation for this query/page. |
+| `generation_revision` | Verified commit fingerprint used to distinguish exports even when different datasets reuse a generation ID. Cursors also carry it and are rejected after a change. |
 | `field` | Requested field key. |
 | `trip_id` | Requested trip filter, or null for an all-trip query. |
 | `points` | Array of records containing the original value and source identifiers. |
@@ -524,13 +528,13 @@ The sidebar's authenticated field response additionally includes a per-field `st
 
 The response also includes the field-description keys explained above: `name`, `unit`, `timestamp_value`, `statistic_unit`, `statistic_factor` and `categorical`. Each point contains `time` (Unix ms), `value` (original JSON value, including null), `trip_id` (source trip or null for metadata) and `sample_index` (array position). The record category is identified by the requested field's prefix. Repeated timestamps are separate records; use field, trip and sample index to distinguish them.
 
-Follow `next_cursor` with the same field, trip and bounds to retrieve all pages. Cursors belong to that query and accepted generation; restart if a new generation invalidates them. Do not interpret the first page as the entire trip.
+The trip dashboard follows every page automatically. API clients should follow `next_cursor` with the same field, trip and bounds to retrieve all pages. Cursors belong to that query and accepted generation; restart if a new generation invalidates them. Do not interpret the first page as the entire trip.
 
 The dashboard's trip selector uses a compact trip index with `trip_id`, `started_at`, `ended_at`, `sample_start`, `sample_end`, `distance_km`, `energy_kwh`, `duration_seconds`, `telemetry_count`, `route_count` and `weather_count`. Start/end/sample bounds are Unix ms. Sample bounds can extend beyond the trip when cached observations have older timestamps; the selected-trip chart uses the trip's exact start/end bounds. Trip choices are separate from the field's sample records.
 
 ### CSV export
 
-The selected primary-field export has columns `recorded_at_utc`, `recorded_at_unix_ms`, `field`, `value_json`, `unit`, `trip_id` and `sample_index`. It fetches all matching pages even when only some are loaded in the graph. For boolean values, `false` remains false; a null remains null. Each configured secondary chart has its own history, but the CSV button exports the currently selected primary field.
+The selected primary-field export has columns `recorded_at_utc`, `recorded_at_unix_ms`, `field`, `value_json`, `unit`, `trip_id` and `sample_index`. It fetches all matching pages for the selected query. For boolean values, `false` remains false; a null remains null. Each configured secondary chart has its own history, but the CSV button exports the currently selected primary field.
 
 ## Examples of interpreting values
 

@@ -3,6 +3,7 @@ const STYLE = `
 :host{display:block;color:var(--primary-text-color,#17212c);font:14px var(--ha-font-family-body,Roboto,system-ui,sans-serif);background:var(--primary-background-color,#f6f8fa);height:100%;overflow:auto}
 main{max-width:1200px;margin:auto;padding:24px}h1{font-size:24px;font-weight:400;margin:0 0 6px}p{color:var(--secondary-text-color,#536575)}
 .brand-header{display:flex;align-items:center;gap:16px}.brand-icon{width:56px;height:56px;border-radius:14px;flex:none;object-fit:contain}.brand-header p{margin:0;line-height:1.5}
+a{color:var(--primary-color,#03a9f4)}
 .controls{display:flex;flex-wrap:wrap;gap:12px;margin:22px 0;align-items:end}label{display:flex;flex-direction:column;gap:6px;font-size:12px;min-width:150px}
 select,input,button{font:inherit;padding:10px;border:1px solid var(--divider-color,#c9d4dc);border-radius:8px;background:var(--card-background-color,#fff);color:inherit;max-width:100%;box-sizing:border-box}
 button{cursor:pointer}button:disabled{opacity:.5;cursor:default}.field{flex:1;min-width:250px}.message{min-height:20px;white-space:pre-wrap}
@@ -31,17 +32,17 @@ class AAOSHistory extends HTMLElement {
   build(){
     this.built=true;
     this.shadowRoot.innerHTML=`<style>${STYLE}</style><main>
-      <header class="brand-header"><img class="brand-icon" src="/aaos_drive/icon.png?v=0.4.3" width="56" height="56" alt="AAOS Logging"><div><h1>AAOS trip dashboard</h1><p>Choose a trip or date range to chart each recorded car sensor at its original timestamp.</p></div></header>
+      <header class="brand-header"><img class="brand-icon" src="/aaos_drive/icon.png?v=0.4.4" width="56" height="56" alt="AAOS Logging"><div><h1>AAOS trip dashboard</h1><p>Choose a trip or date range to chart each recorded car sensor at its original timestamp.</p></div></header>
       <div class="controls"><label>Vehicle<select id="vehicle"></select></label>
       <label>Trip<select id="trip"><option value="">All trips in the period</option></select></label><button id="older" hidden>Load older trips</button>
       <label class="field">Find a sensor or measurement<input id="search" type="search" placeholder="Speed, battery, brakes, weather…"><select id="field"></select></label>
       <label>From<input id="from" type="datetime-local"></label><label>Through<input id="through" type="datetime-local"></label>
       <button id="show">Show history</button><button id="reload">Refresh Drive data</button></div>
-      <p id="coverage"></p><p id="syncinfo"></p><p id="tripinfo"></p><div id="message" class="message" role="status" aria-live="polite"></div>
+      <p id="coverage"></p><p id="syncinfo"></p><p id="sourceinfo"><a id="drivefolder" target="_blank" rel="noopener noreferrer" hidden>Open the configured Drive folder</a><span id="sourcecount"></span></p><p id="tripinfo"></p><div id="message" class="message" role="status" aria-live="polite"></div>
       <div class="chart"><strong id="title"></strong><svg viewBox="0 0 1000 310" role="img" aria-label="Recorded measurements over time"></svg><p id="chartnote"></p></div>
       <div id="graphs"></div>
       <div class="table"><table><thead><tr><th>Recorded time</th><th>Value</th><th>Trip</th><th>Sample</th></tr></thead><tbody></tbody></table></div>
-      <div class="footer"><button id="more" disabled>Load more samples</button><button id="csv" disabled>Export full selected history (CSV)</button><span id="count"></span></div>
+      <div class="footer"><button id="more" hidden disabled>Load more samples</button><button id="csv" disabled>Export full selected history (CSV)</button><span id="count"></span></div>
     </main>`;
     this.$("vehicle").onchange=()=>this.loadFields();
     this.$("search").oninput=()=>this.filterFields();
@@ -60,6 +61,10 @@ class AAOSHistory extends HTMLElement {
   syncInfo(info){
     const date=value=>value===null||value===undefined?"Not yet available":new Date(value).toLocaleString();
     this.$("syncinfo").textContent=`Drive checked: ${date(info.last_checked_at)} · Last successful sync: ${date(info.last_successful_sync)} · Latest recorded trip: ${date(info.latest_trip_at)}`;
+    const link=this.$("drivefolder");
+    link.hidden=!/^https:\/\/drive\.google\.com\/drive\/folders\/[A-Za-z0-9_-]+$/.test(info.drive_folder_url||"");
+    if(!link.hidden)link.href=info.drive_folder_url;
+    this.$("sourcecount").textContent=info.source_trip_count===undefined?"":` · Drive export: ${info.source_trip_count} trips · Generation ${info.generation_sequence}`;
   }
   async checkForUpdates(){
     if(this.polling||this.refreshing||this.loadingFields||this.loadingPoints||this.exporting||!this.$("vehicle").value)return;
@@ -69,7 +74,7 @@ class AAOSHistory extends HTMLElement {
       const info=await this.call("aaos_drive/history/status",{config_entry_id:entry});
       if(serial!==this.request||entry!==this.$("vehicle").value)return;
       this.syncInfo(info);
-      if(info.generation_id!==this.info?.generation_id)await this.loadFields(true);
+      if(info.generation_id!==this.info?.generation_id||info.generation_revision!==this.info?.generation_revision)await this.loadFields(true);
       else{
         this.info={...this.info,...info};
         this.status(info.drive_available===false?"Drive is currently unavailable. Showing the last complete local history.":info.statistics_error||"");
@@ -216,15 +221,24 @@ class AAOSHistory extends HTMLElement {
     this.status("Loading recorded samples…");this.$("more").disabled=true;this.$("csv").disabled=true;
     try{
       const fields=append?this.loadedFields:[...new Set([query.field,...(this.config?.fields||[])])].filter(f=>this.info.fields.some(info=>info.field===f));
-      const pages=await Promise.all(fields.map(async field=>{
-        const previous=append?this.series[field]:null;
-        if(append&&!previous.next_cursor)return previous;
-        const page=await this.call("aaos_drive/history/points",{...query,field,...(append?{cursor:previous.next_cursor}:{})});
-        if(append)page.points=previous.points.concat(page.points);
+      const nextPage=async(field,previous)=>{
+        if(previous&&!previous.next_cursor)return previous;
+        const page=await this.call("aaos_drive/history/points",{...query,field,...(previous?{cursor:previous.next_cursor}:{})});
+        if(previous){
+          if(page.generation_id!==previous.generation_id||page.generation_revision!==previous.generation_revision)throw new Error("History changed while loading charts. Refresh Drive data and try again.");
+          page.points=previous.points.concat(page.points);
+        }
         return page;
-      }));
+      };
+      let pages=await Promise.all(fields.map(field=>nextPage(field,append?this.series[field]:null)));
       if(serial!==this.request)return;
-      if(new Set(pages.map(page=>page.generation_id)).size>1)throw new Error("History changed while loading charts. Reload data and try again.");
+      if(new Set(pages.map(page=>JSON.stringify([page.generation_id,page.generation_revision]))).size>1)throw new Error("History changed while loading charts. Refresh Drive data and try again.");
+      while(pages.some(page=>page.next_cursor)){
+        this.status(`Loading the full selected period… ${pages.reduce((total,page)=>total+page.points.length,0).toLocaleString()} samples received.`);
+        pages=await Promise.all(fields.map((field,index)=>nextPage(field,pages[index])));
+        if(serial!==this.request)return;
+        if(new Set(pages.map(page=>JSON.stringify([page.generation_id,page.generation_revision]))).size>1)throw new Error("History changed while loading charts. Refresh Drive data and try again.");
+      }
       this.loadedFields=fields;this.series=Object.fromEntries(pages.map(page=>[page.field,page]));
       const data=this.series[query.field];
       this.loadedQuery={...query};this.data=data;this.cursor=data.next_cursor;
@@ -294,7 +308,7 @@ class AAOSHistory extends HTMLElement {
     const dateLabel=ms=>span>=86400000?new Date(ms).toLocaleDateString():new Date(ms).toLocaleTimeString();
     add("text",{x:80,y:290,class:"axis"},dateLabel(first));
     add("text",{x:right,y:290,class:"axis","text-anchor":"end"},dateLabel(last));
-    note.textContent=(numeric?"Original samples; gaps and separate trips remain separate.":"Recorded states and codes; Unknown remains unknown.")+` ${rows.length.toLocaleString()} samples${this.series[data.field].next_cursor?" · Load more to extend this chart":""}.`;
+    note.textContent=(numeric?"Original samples; gaps and separate trips remain separate.":"Recorded states and codes; Unknown remains unknown.")+` ${rows.length.toLocaleString()} samples.`;
   }
   async exportCSV(){
     const query={...this.loadedQuery},serial=++this.request;

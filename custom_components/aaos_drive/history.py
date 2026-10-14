@@ -72,6 +72,7 @@ class HistoryStore:
     def state(self):
         with self.connect() as db:
             return {"generation_id": self.meta(db, "generation_id"),
+                    "identity": self.meta(db, "identity"),
                     "statistics_pending": self.meta(db, "statistics_pending", False)}
 
     def has_artifact(self, sha):
@@ -118,8 +119,14 @@ class HistoryStore:
         artifacts = [a for a in snapshot.manifest.artifacts if a.kind in {"day_archive", "month_archive"}]
         with self.connect() as db:
             identity = {key: manifest[key] for key in ("datasetId", "vehicleId")}
-            if self.meta(db, "identity", identity) != identity:
+            stored_manifest = self.meta(db, "manifest", {})
+            legacy_identity = {key: stored_manifest.get(key) for key in ("datasetId", "vehicleId")}
+            previous = self.meta(db, "identity", legacy_identity if all(legacy_identity.values()) else identity)
+            migration = previous != identity
+            if migration and (snapshot.previous_identity != previous or snapshot.catalog.get("historyRelationVersion") != 1 or
+                              previous["datasetId"] not in snapshot.catalog.get("mergedDatasetIds", [])):
                 raise InvalidExport("Local history belongs to another vehicle or dataset")
+            previous_trips = {row[0] for row in db.execute("SELECT trip_id FROM trips WHERE sha IN (SELECT sha FROM active)")} if migration else set()
             db.execute("DELETE FROM active")
             for artifact in artifacts:
                 row = db.execute("SELECT trip_count FROM artifacts WHERE sha=?", (artifact.sha256,)).fetchone()
@@ -129,13 +136,17 @@ class HistoryStore:
             total, unique = db.execute("SELECT COUNT(*),COUNT(DISTINCT trip_id) FROM trips WHERE sha IN (SELECT sha FROM active)").fetchone()
             if total != manifest["totalTripCount"] or total != unique:
                 raise InvalidExport("Historical trip identity or total count mismatch")
+            if migration:
+                merged_trips = {row[0] for row in db.execute("SELECT trip_id FROM trips WHERE sha IN (SELECT sha FROM active)")}
+                if not previous_trips.issubset(merged_trips):
+                    raise InvalidExport("Combined history is missing previously imported trips; retaining the original history")
             latest = db.execute("SELECT ended,data FROM trips WHERE sha IN (SELECT sha FROM active) ORDER BY ended DESC,started DESC,trip_id DESC LIMIT 1").fetchone()
             if (latest[0] if latest else None) != manifest["latestTripEndTimestamp"]:
                 raise InvalidExport("Complete history does not match the committed latest trip")
             snapshot.trip = json.loads(latest[1]) if latest else None
             for key in ("telemetry", "weather", "route", "readings"):
                 snapshot.__dict__.pop(key, None)
-            sha = "snapshot:" + manifest["generationId"]
+            sha = "snapshot:" + manifest["datasetId"] + ":" + manifest["generationId"]
             if not db.execute("SELECT 1 FROM snapshots WHERE sha=?", (sha,)).fetchone():
                 at = manifest["generatedAt"]
                 self.record(db, sha, None, "vehicle", 0, at, snapshot.catalog.get("vehicle", {}))
@@ -147,7 +158,7 @@ class HistoryStore:
                     self.record(db, sha, None, "index", position, at, {key: index})
                 db.execute("INSERT INTO snapshots VALUES (?)", (sha,))
             for key, value in (("identity", identity), ("generation_id", manifest["generationId"]),
-                               ("manifest", manifest), ("catalog", snapshot.catalog), ("statistics_pending", True)):
+                               ("generation_revision", snapshot.manifest_hash), ("manifest", manifest), ("catalog", snapshot.catalog), ("statistics_pending", True)):
                 self.put(db, key, value)
             # Remove superseded detailed archives only after the complete replacement exists.
             for table in ("trips", "records", "fields", "artifacts"):
@@ -175,7 +186,9 @@ class HistoryStore:
         query = {"field": field, "start": start, "end": end, "trip_id": trip_id}
         with self.connect() as db:
             generation = self.meta(db, "generation_id")
+            revision = self.meta(db, "generation_revision")
             if cursor is not None and (not isinstance(cursor, dict) or cursor.get("generation_id") != generation
+                                      or cursor.get("generation_revision") != revision
                                       or cursor.get("query") != query
                                       or not integer(cursor.get("at")) or not integer(cursor.get("id"))):
                 raise InvalidExport("History changed or cursor is invalid; restart the query")
@@ -188,8 +201,8 @@ class HistoryStore:
                 ORDER BY r.at,r.id LIMIT ?""", (kind, key, trip_id, trip_id, start or 0, end if end is not None else 2**63-1,
                 cursor["at"] if cursor else -1, cursor["at"] if cursor else -1, cursor["id"] if cursor else 0, limit+1)).fetchall()
             page = rows[:limit]
-            next_cursor = {"generation_id": generation, "query": query, "at": page[-1][1], "id": page[-1][0]} if len(rows) > limit else None
-            return {**series_info(field), "generation_id": generation, "trip_id": trip_id,
+            next_cursor = {"generation_id": generation, "generation_revision": revision, "query": query, "at": page[-1][1], "id": page[-1][0]} if len(rows) > limit else None
+            return {**series_info(field), "generation_id": generation, "generation_revision": revision, "trip_id": trip_id,
                     "points": [{"time": r[1], "trip_id": r[2], "sample_index": r[3], "value": json.loads(r[4])[key]} for r in page],
                     "next_cursor": next_cursor}
 
@@ -202,7 +215,9 @@ class HistoryStore:
         query = {"start": start, "end": end}
         with self.connect() as db:
             generation = self.meta(db, "generation_id")
+            revision = self.meta(db, "generation_revision")
             if cursor is not None and (not isinstance(cursor, dict) or cursor.get("generation_id") != generation
+                                      or cursor.get("generation_revision") != revision
                                       or cursor.get("query") != query or not integer(cursor.get("started"))
                                       or not isinstance(cursor.get("trip_id"), str)):
                 raise InvalidExport("History changed or trip cursor is invalid; restart the query")
@@ -223,8 +238,8 @@ class HistoryStore:
                                 "distance_km": trip.get("distanceKm"), "energy_kwh": trip.get("energyKwh"),
                                 "duration_seconds": summary["durationSeconds"], "telemetry_count": summary["telemetryCount"],
                                 "route_count": summary["routePointCount"], "weather_count": summary["weatherSampleCount"]})
-            next_cursor = {"generation_id": generation, "query": query, "started": page[-1][0], "trip_id": page[-1][1]} if len(rows) > limit else None
-            return {"generation_id": generation, "trip_count": total, "trips": choices, "next_cursor": next_cursor}
+            next_cursor = {"generation_id": generation, "generation_revision": revision, "query": query, "started": page[-1][0], "trip_id": page[-1][1]} if len(rows) > limit else None
+            return {"generation_id": generation, "generation_revision": revision, "trip_count": total, "trips": choices, "next_cursor": next_cursor}
 
     def trip(self, trip_id=""):
         with self.connect() as db:
@@ -306,7 +321,8 @@ class HistoryStore:
 
 async def sync_history(store, repository, snapshot, executor):
     state = await executor(store.state)
-    if state["generation_id"] == snapshot.manifest.raw["generationId"]:
+    identity = {key: snapshot.manifest.raw[key] for key in ("datasetId", "vehicleId")}
+    if state["generation_id"] == snapshot.manifest.raw["generationId"] and state["identity"] == identity:
         return
     for artifact in snapshot.manifest.artifacts:
         if artifact.kind not in {"day_archive", "month_archive"} or await executor(store.has_artifact, artifact.sha256):

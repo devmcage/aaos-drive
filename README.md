@@ -9,9 +9,11 @@ More details can be found at: https://mcagesoft.nl
 
 User documentation: [Detailed installation guide](docs/INSTALLATION.md) and [Complete attribute and data reference](docs/ATTRIBUTES.md).
 
-Version **0.4.3** supports Drive sync **V3**, TripLog day format **1**, trip schema **17**, and Home Assistant **2026.9 or later**. The Android app does not need changes. The integration and trip dashboard use the [official AAOS Logging artwork](icon/README.md).
+Version **0.4.4** supports Drive sync **V3**, TripLog day format **1**, trip schema **17**, and Home Assistant **2026.9 or later**. The Android app does not need changes. The integration and trip dashboard use the [official AAOS Logging artwork](icon/README.md).
 
-Version 0.4.3 matches the AAOS Logging 1.00.5 export writers, including uniform compressed daily archives across all months, merged-history catalog metadata and power-signal direction. Corrected power and trip-energy history is imported as supplied by the app; Home Assistant does not invert it again.
+Version 0.4.4 follows a combined history published in the same configured Drive folder when the logger explicitly identifies the original dataset as merged. It validates the complete history and preserves previously imported trips, existing entity IDs and the selected folder. Charts automatically load all pages for the selected period.
+
+The integration matches the AAOS Logging 1.00.5 export writers, including uniform compressed daily archives across all months, merged-history catalog metadata and power-signal direction. Corrected power and trip-energy history is imported as supplied by the app; Home Assistant does not invert it again.
 
 ## Recorded history
 
@@ -23,7 +25,7 @@ Open **AAOS history** in the Home Assistant sidebar using an administrator accou
 - Boolean states, raw enum codes, text, null values and new export fields remain available.
 - Weather samples, GPS route samples and every trip's measurements are included.
 - Vehicle metadata, catalog month measures and week/month indexes are recorded when their committed export is imported.
-- Load additional sample pages as needed. **Export full selected history (CSV)** retrieves every page for the selected sensor and trip/date range. Its value_json column preserves null, boolean, numeric, text and structured values.
+- Charts automatically retrieve every sample page for the selected sensors and trip/date range. **Export full selected history (CSV)** retrieves every page for the selected sensor and trip/date range. Its value_json column preserves null, boolean, numeric, text and structured values.
 - Complete original trip records are available through Home Assistant actions.
 
 Numeric measurements with recognized units are imported at their original recording hours into Home Assistant's **long-term statistics**. Measured sensors such as speed, power and battery percentage also receive statistics under their **actual sensor entity IDs**, which Home Assistant's native History page requests. External statistics with `aaos_drive:` IDs remain available for compatibility and trip summaries. These are arithmetic sample means, minima and maxima; trip measurements are assigned to the trip's ending hour. They are not cumulative energy totals.
@@ -32,7 +34,7 @@ The device contains stable entities for measured telemetry, route and weather fi
 
 Sensors with no usable readings anywhere in the first complete imported history are **hidden** through Home Assistant's entity registry. Zero, false and untranslated enum codes count as readings. A sensor with older readings stays visible even when its latest value is unknown. Hidden entities remain enabled, and all original fields and samples stay available in the trip dashboard/actions. Automatically hidden sensors become visible when a later import supplies a valid reading; temporary missing values do not hide them again. Show or hide individual entities through their Home Assistant settings to override this default. User-hidden sensors stay hidden.
 
-Select a measured numeric sensor in native **History** to view its imported hourly records. A native **Statistics graph** card can use the same sensor entity ID. Numeric entities have a measurement state class, so Home Assistant also records their latest received states after installation. Those later state updates are distinct from the past hours imported from the car.
+Use a native **Statistics graph** card with an **hour** or longer period to view imported measurements under the same sensor entity ID. The native **History** page shows recent Recorder states and uses long-term statistics after older state history is purged, so recent past trips may appear differently there. Numeric entities have a measurement state class, so Home Assistant also records their latest received states after installation. Those later state updates are distinct from the past hours imported from the car.
 
 Raw entity states cannot be backdated through the supported import helper. Use the bundled **AAOS trip dashboard** for every original sample, including boolean states and enum codes. Native hourly backfill waits until at least one hour after the recorded hour ends, avoiding a race with Recorder's hourly compiler; older imported days appear after setup. Read the [installation guide](docs/INSTALLATION.md#examples) for dashboard examples and the [data reference](docs/ATTRIBUTES.md) for interpretation.
 
@@ -51,7 +53,7 @@ HACS installs and updates the integration files. Each user still configures thei
 
 ### Manual installation
 
-1. Download `aaos-drive-0.4.3.zip` from the [GitHub release](https://github.com/devmcage/aaos-drive/releases/latest) and unzip it.
+1. Download `aaos-drive-0.4.4.zip` from the [GitHub release](https://github.com/devmcage/aaos-drive/releases/latest) and unzip it.
 2. Copy the **whole `custom_components/aaos_drive` folder** into `/config/custom_components/aaos_drive`, replacing the earlier version when upgrading.
 3. Restart Home Assistant.
 4. Complete a Google Drive sync in AAOS Logging. In Drive, copy the URL of `AAOSLogging/<car-name>_<vehicle-id>`, the vehicle folder containing `Sync` and `Backup`.
@@ -59,7 +61,7 @@ HACS installs and updates the integration files. Each user still configures thei
 6. Allow the first full history import to finish. Large datasets need more time and local disk space.
 7. Open **AAOS history** in the sidebar. Each vehicle dataset can be configured separately.
 
-Existing installations keep their configuration, imported history and measured-sensor unique IDs. Restarting after upgrading automatically removes the integration's obsolete month/trip/dataset/specification sensor entries from the entity registry. Dashboards referencing those removed summaries need updating. Sensor names use **Telemetry**, **Route** and **Weather**; custom names on retained entities are preserved. Update an existing dashboard resource URL to `/aaos_drive/history.js?v=0.4.3` and refresh the browser.
+Existing installations keep their configuration, imported history and measured-sensor unique IDs. Restarting after upgrading automatically removes the integration's obsolete month/trip/dataset/specification sensor entries from the entity registry. Dashboards referencing those removed summaries need updating. Sensor names use **Telemetry**, **Route** and **Weather**; custom names on retained entities are preserved. Update an existing dashboard resource URL to `/aaos_drive/history.js?v=0.4.4` and refresh the browser.
 
 Upgrading to 0.4.1 applies the empty-sensor visibility default once to existing AAOS measurement entities, using all locally imported history even when Drive has not changed. Existing user-hidden entities are left hidden. Later manual show/hide choices are preserved across refreshes and restarts. Buttons, diagnostic entities and the position tracker are unaffected.
 
