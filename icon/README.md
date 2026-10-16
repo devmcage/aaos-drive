@@ -1,7 +1,7 @@
 # AAOS brand artwork
 
-`app-icon-512.png` is the official AAOS Logging icon supplied for this project.
-Keep this source artwork intact: its mint-green car and winding route identify
+`app-icon-512.png` is the current official AAOS Logging Google Play icon, copied from the app project’s `store-assets/play/app-icon-512.png`.
+Keep this source artwork intact: its white car and mint-green winding route identify
 the AAOS brand.
 
 `tools/build_brand.py` produces the Home Assistant brand assets:
@@ -11,7 +11,7 @@ the AAOS brand.
   512px PNG, also used by the GitHub README and trip dashboard header.
 
 The dashboard uses Home Assistant's typography, spacing and theme colors around
-the original icon. Its supplied dark background maintains contrast in both
+the original icon. Its supplied full-square dark background maintains contrast in both
 light and dark interfaces. The logo is not recolored or redrawn.
 
 To rebuild the size variants, install Pillow in a development environment and

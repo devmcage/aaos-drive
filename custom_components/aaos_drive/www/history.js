@@ -32,7 +32,7 @@ class AAOSHistory extends HTMLElement {
   build(){
     this.built=true;
     this.shadowRoot.innerHTML=`<style>${STYLE}</style><main>
-      <header class="brand-header"><img class="brand-icon" src="/aaos_drive/icon.png?v=0.4.4" width="56" height="56" alt="AAOS Logging"><div><h1>AAOS trip dashboard</h1><p>Choose a trip or date range to chart each recorded car sensor at its original timestamp.</p></div></header>
+      <header class="brand-header"><img class="brand-icon" src="/aaos_drive/icon.png?v=0.4.5" width="56" height="56" alt="AAOS Logging"><div><h1>AAOS trip dashboard</h1><p>Choose a trip or date range to chart each recorded car sensor at its original timestamp.</p></div></header>
       <div class="controls"><label>Vehicle<select id="vehicle"></select></label>
       <label>Trip<select id="trip"><option value="">All trips in the period</option></select></label><button id="older" hidden>Load older trips</button>
       <label class="field">Find a sensor or measurement<input id="search" type="search" placeholder="Speed, battery, brakes, weather…"><select id="field"></select></label>
