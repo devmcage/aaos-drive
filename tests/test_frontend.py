@@ -104,3 +104,17 @@ class FrontendTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(self.module.refresh, commands)
         paths = self.hass.http.async_register_static_paths.call_args.args[0]
         self.assertEqual({path[0] for path in paths}, {"/aaos_drive/history.js", "/aaos_drive/icon.png"})
+
+    async def test_dashboard_exposes_fuel_trip_measurements_but_not_metadata_entities(self):
+        from custom_components.aaos_drive.measurements import series_info
+        fields = [series_info(field) for field in ("telemetry.fuelConsumptionLitersPer100Km", "telemetry.fuelDoorOpen",
+            "trip.fuelUsage.movingFuelLiters", "trip.fuelUsage.coveragePercent", "trip.fuelUsage.includesStationaryFuel",
+            "telemetry.vehicleType", "vehicle.specifications.vehicleType")]
+        self.target.entry.entry_id = "entry"
+        self.target.history = SimpleNamespace(overview=lambda: {"fields": fields})
+        self.hass.async_add_executor_job = asyncio.to_thread
+        with patch.dict(sys.modules, {"custom_components.aaos_drive.statistics": SimpleNamespace(native_statistic_ids=lambda *args: {})}):
+            await self.module.fields(self.hass, self.connection, self.message)
+        result = self.connection.send_result.call_args.args[1]
+        self.assertEqual({field["field"] for field in result["fields"]}, {
+            "telemetry.fuelConsumptionLitersPer100Km", "telemetry.fuelDoorOpen", "trip.fuelUsage.movingFuelLiters", "trip.fuelUsage.coveragePercent"})

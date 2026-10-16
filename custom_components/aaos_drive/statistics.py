@@ -7,7 +7,7 @@ import json
 
 from homeassistant.components.recorder import get_instance
 from homeassistant.components.recorder.models import StatisticMeanType
-from homeassistant.components.recorder.statistics import async_add_external_statistics, async_import_statistics
+from homeassistant.components.recorder.statistics import async_add_external_statistics, async_import_statistics, async_update_statistics_metadata
 from homeassistant.helpers import entity_registry as er
 
 from .history import statistic_id
@@ -54,6 +54,7 @@ async def sync_statistics(hass, entry, history):
     recorder = get_instance(hass)
     for field in sorted(series.keys() | old.keys() | native_ids.keys()):
         rows = series.get(field, [])
+        info = series_info(field)
         hours = [row["time"] for row in rows]
         digest = hashlib.sha256(json.dumps(rows, separators=(",", ":")).encode()).hexdigest()
         native_id = native_ids.get(field)
@@ -61,11 +62,18 @@ async def sync_statistics(hass, entry, history):
         native_digest = hashlib.sha256(json.dumps(native_rows, separators=(",", ":")).encode()).hexdigest() if native_id else None
         native_hours = [row["time"] for row in native_rows]
         applied[field] = {"digest": digest, "hours": hours, "native_statistic_id": native_id,
-                          "native_digest": native_digest, "native_hours": native_hours}
+                          "native_digest": native_digest, "native_hours": native_hours,
+                          "unit": info["statistic_unit"]}
         previous = old.get(field, {})
         if previous == applied[field]:
             continue
         identifier = statistic_id(entry.entry_id, field)
+        if previous and field in {"telemetry.fuelConsumptionLitersPer100Km", "trip.fuelUsage.movingConsumptionLitersPer100Km"} and previous.get("unit") != info["statistic_unit"]:
+            # Older generic suffix matching called these raw L/100 km numbers
+            # "km". Relabel owned series, preserving values and recorded hours.
+            for owned_id in (identifier, native_id):
+                if owned_id:
+                    async_update_statistics_metadata(hass, owned_id, new_unit_of_measurement=info["statistic_unit"], new_unit_class=None)
         changed_values = previous.get("digest") != digest or previous.get("hours") != hours
         removed_hours = set(previous.get("hours", [])) - set(hours)
         # Correct deletions as well as additions; every native ID comes from
@@ -76,7 +84,6 @@ async def sync_statistics(hass, entry, history):
             recorder.async_clear_statistics([native_id])
         if not rows:
             continue
-        info = series_info(field)
         metadata = {"statistic_id": identifier, "source": "aaos_drive",
                     "name": f"{entry.title}: {info['name']}", "has_sum": False,
                     "mean_type": StatisticMeanType.ARITHMETIC, "unit_class": None,

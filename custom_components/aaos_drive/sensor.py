@@ -19,7 +19,7 @@ def remove_legacy_entities(hass, entry):
     for entity in er.async_entries_for_config_entry(registry, entry.entry_id):
         if entity.platform == "aaos_drive" and entity.domain == "sensor" and entity.unique_id.startswith(prefix):
             key = entity.unique_id[len(prefix):]
-            if key.startswith(("month.", "trip.", "vehicle.", "dataset.")) or not car_sensor(key) and key.startswith(("telemetry.", "weather.", "route.")):
+            if key.startswith(("month.", "trip.", "vehicle.", "dataset.")) or key in {f"telemetry.{field}" for field in BINARY_FIELDS} or not car_sensor(key) and key.startswith(("telemetry.", "weather.", "route.")):
                 registry.async_remove(entity.entity_id)
 
 

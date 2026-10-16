@@ -142,3 +142,38 @@ class FakeDrive:
             from custom_components.aaos_drive.api import DriveNotFoundError
             raise DriveNotFoundError("A generation file was removed during the read")
         return self.commit if file_id == "head" else self.blobs[file_id]
+
+
+def fuel_day(vehicle_type="HYBRID", missing=False, energy_source="vehicle_sensor"):
+    """Synthetic powertrain-v1 export, including partial measured coverage."""
+    day = day_document("2026-10-04", "dataset-a-2")
+    trip = day["trips"][0]
+    trip.update(vehicleType=vehicle_type, vehicleTypeSource="aaos_fuel_and_traction_battery" if vehicle_type == "HYBRID" else "aaos_fuel_no_electric_evidence",
+                powertrainSchemaVersion=1, energySource=energy_source,
+                energyKwh=-0.01 if energy_source != "unknown" else 0.0)
+    template = trip["telemetry"][0]
+    trip["telemetry"] = []
+    for i in range(5):
+        point = copy.deepcopy(template)
+        point.update(recordedAt=trip["startedAt"]+i*2000, speedKph=60.0,
+                     vehicleType=vehicle_type, vehicleTypeSource=trip["vehicleTypeSource"],
+                     fuelLevelLiters=None if missing else 40.0-i*0.1,
+                     fuelCapacityLiters=None if missing else 50.0,
+                     fuelConsumptionLitersPer100Km=None if missing or i == 2 else 6.0,
+                     fuelLevelLow=None if missing else False, fuelDoorOpen=None if missing else False,
+                     engineRpm=None if missing or i == 2 else 1200.0 if i < 2 else 0.0)
+        if vehicle_type == "FUEL":
+            point.update(powerKw=None, powerSource="unknown", batteryPercent=None, batteryEnergyWh=None)
+        trip["telemetry"].append(point)
+    trip["fuelUsage"] = {
+        "source":"derived_from_aaos_fuel_economy_and_speed", "includesStationaryFuel":False,
+        "movingFuelLiters":None if missing else 0.004,
+        "movingConsumptionLitersPer100Km":None if missing else 6.0,
+        "coveredDistanceKm":0.0 if missing else 1/15,
+        "observedDistanceKm":2/15, "tripDistanceKm":trip["distanceKm"],
+        "engineRunningSeconds":None if missing else 2.0,
+        "engineObservedSeconds":0.0 if missing else 4.0,
+        "engineOffMovingSeconds":None if missing else 2.0,
+        "limitations":"Only valid adjacent intervals up to 10 seconds; excludes stationary fuel and missing samples. Engine-off moving includes coasting.",
+    }
+    return day

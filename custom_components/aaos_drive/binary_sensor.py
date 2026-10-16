@@ -16,6 +16,13 @@ async def async_setup_entry(hass, entry, async_add_entities):
 
 
 class AAOSBinarySensor(AAOSEntity, BinarySensorEntity):
+    def __init__(self, coordinator, key, name):
+        super().__init__(coordinator, key, name)
+        if key == "telemetry.fuelLevelLow":
+            self._attr_device_class = "problem"
+        elif key == "telemetry.fuelDoorOpen":
+            self._attr_device_class = "opening"
+
     @property
     def is_on(self):
         value = self.coordinator.data.values().get(self.key)

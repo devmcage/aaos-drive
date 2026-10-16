@@ -14,7 +14,7 @@ from homeassistant.exceptions import HomeAssistantError
 from .const import DOMAIN
 from .history import statistic_id
 from .model import InvalidExport
-from .measurements import car_sensor
+from .measurements import dashboard_field
 
 
 def coordinator(hass, entry_id):
@@ -84,7 +84,7 @@ async def fields(hass, connection, msg):
     target = coordinator(hass, msg["config_entry_id"])
     async with target.lock:
         result = await hass.async_add_executor_job(target.history.overview)
-        result["fields"] = [field for field in result["fields"] if car_sensor(field["field"])]
+        result["fields"] = [field for field in result["fields"] if dashboard_field(field["field"])]
         from .statistics import native_statistic_ids
         native = native_statistic_ids(hass, target.entry)
         for field in result["fields"]:
@@ -142,4 +142,4 @@ async def async_setup_frontend(hass):
     ])
     await async_register_panel(hass, frontend_url_path="aaos-history", webcomponent_name="aaos-history-panel",
         sidebar_title="AAOS history", sidebar_icon="mdi:chart-timeline-variant",
-        module_url="/aaos_drive/history.js?v=0.4.5", embed_iframe=False, require_admin=True)
+        module_url="/aaos_drive/history.js?v=0.4.6", embed_iframe=False, require_admin=True)

@@ -1,7 +1,7 @@
 """Shared names and units for current entities and historical series."""
 
 import re
-from .const import BINARY_FIELDS
+from .const import BINARY_FIELDS, FUEL_USAGE_MEASUREMENTS
 
 TIMESTAMPS = {"recordedAt", "startedAt", "endedAt", "capturedAt", "generatedAt", "firstTripAt", "lastTripAt", "lastChecked"}
 
@@ -9,10 +9,24 @@ TIMESTAMPS = {"recordedAt", "startedAt", "endedAt", "capturedAt", "generatedAt",
 def car_sensor(key):
     """Measured fields have stable entities; timestamps and summaries are attributes/data."""
     group, _, field = key.partition(".")
-    return group in {"telemetry", "weather", "route"} and field not in TIMESTAMPS and field not in {"powerSource", "powerSignalDirection"}
+    return group in {"telemetry", "weather", "route"} and field not in TIMESTAMPS and field not in {"powerSource", "powerSignalDirection", "vehicleType", "vehicleTypeSource"}
+
+
+def dashboard_field(key):
+    return car_sensor(key) or key in {f"trip.fuelUsage.{field}" for field in FUEL_USAGE_MEASUREMENTS}
 
 
 def label(key):
+    names = {"fuelLevelLiters": "Fuel remaining", "fuelCapacityLiters": "Fuel tank capacity",
+             "fuelLevelLow": "Low fuel warning", "fuelDoorOpen": "Fuel door open",
+             "fuelConsumptionLitersPer100Km": "Fuel consumption",
+             "movingFuelLiters": "Trip moving fuel estimate", "movingConsumptionLitersPer100Km": "Trip moving fuel consumption",
+             "coveredDistanceKm": "Trip fuel covered distance", "observedDistanceKm": "Trip observed distance",
+             "tripDistanceKm": "Trip fuel reference distance", "engineRunningSeconds": "Trip observed engine running time",
+             "engineObservedSeconds": "Trip engine observation time", "engineOffMovingSeconds": "Trip engine-off moving time",
+             "coveragePercent": "Trip fuel sample coverage"}
+    if key.startswith(("telemetry.", "trip.fuelUsage.")) and key.rsplit(".", 1)[-1] in names:
+        return names[key.rsplit(".", 1)[-1]]
     group, _, field = key.partition(".")
     field = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", field).replace(".", " ")
     prefix = {"telemetry": "Telemetry", "trip": "Trip", "weather": "Weather", "route": "Route", "vehicle": "Vehicle", "dataset": "Dataset", "month": "Month", "index": "Index"}.get(group, group)
@@ -24,6 +38,14 @@ def measurement(field):
         return None, "timestamp", 1
     if field == "efficiencyKwhPer100Km":
         return "kWh/100 km", None, 1
+    if field in {"fuelConsumptionLitersPer100Km", "movingConsumptionLitersPer100Km"}:
+        return "L/100 km", None, 1
+    if field in {"fuelLevelLiters", "fuelCapacityLiters"}:
+        return "L", "volume_storage", 1
+    if field == "movingFuelLiters":
+        return "L", "volume", 1
+    if field in {"engineRunningSeconds", "engineObservedSeconds", "engineOffMovingSeconds"}:
+        return "s", "duration", 1
     if field == "drivingTimeMs":
         return "s", "duration", 0.001
     if field == "durationSeconds":
@@ -54,8 +76,6 @@ def measurement(field):
         return "g", None, 1
     if field == "engineRpm":
         return "rpm", None, 1
-    if field == "fuelCapacityLiters":
-        return "L", "volume", 1
     if field == "fuelCapacityMilliliters":
         return "mL", "volume", 1
     return None, None, 1

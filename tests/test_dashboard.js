@@ -128,6 +128,20 @@ async function run() {
   await changing.loadPoints();
   assert.equal(changing.samples[0].value,"previous-complete-selection");
   assert.match(changing.message,/History changed/);
+  const hybrid=card();
+  hybrid.trips=[{trip_id:"hybrid",started_at:1,ended_at:60001,telemetry_count:5,route_count:2,
+    vehicle_type:"HYBRID",energy_kwh:-0.01,fuel_usage:{movingFuelLiters:0.004,movingConsumptionLitersPer100Km:6,
+    coveragePercent:50,engineRunningSeconds:2,engineObservedSeconds:4,engineOffMovingSeconds:2,includesStationaryFuel:false}}];
+  hybrid.$("trip").value="hybrid";hybrid.tripSummary();
+  assert.match(hybrid.$("tripinfo").textContent,/battery net energy only/);
+  assert.match(hybrid.$("tripinfo").textContent,/Moving fuel estimate:/);
+  assert.match(hybrid.$("tripinfo").textContent,/0.004 L/);
+  assert.match(hybrid.$("tripinfo").textContent,/coverage: 50%/);
+  assert.match(hybrid.$("tripinfo").textContent,/includes coasting/);
+  hybrid.trips[0].vehicle_type="FUEL";hybrid.trips[0].energy_kwh=null;hybrid.trips[0].fuel_usage=null;
+  hybrid.tripSummary();
+  assert.match(hybrid.$("tripinfo").textContent,/Moving fuel estimate: Unknown L/);
+  assert.doesNotMatch(hybrid.$("tripinfo").textContent,/kWh/);
   changing.call=async(type,query)=>({field:query.field,generation_id:"same-id",generation_revision:query.cursor?"new-dataset":"old-dataset",points:[{value:1}],next_cursor:query.cursor?null:{page:2}});
   await changing.loadPoints();
   assert.equal(changing.samples[0].value,"previous-complete-selection");

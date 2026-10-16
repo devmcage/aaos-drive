@@ -65,6 +65,11 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("telemetry.recordedAt", keys)
         self.assertNotIn("telemetry.powerSource", keys)
         self.assertNotIn("telemetry.powerSignalDirection", keys)
+        self.assertNotIn("telemetry.vehicleType", keys)
+        self.assertNotIn("telemetry.vehicleTypeSource", keys)
+        self.assertNotIn("telemetry.fuelDoorOpen", keys)
+        self.assertNotIn("telemetry.fuelLevelLow", keys)
+        self.assertIn("telemetry.fuelConsumptionLitersPer100Km", keys)
         self.assertNotIn("telemetry.chargePortConnected", keys)
         speed=next(entity for entity in added if entity.key=="telemetry.speedKph")
         self.assertEqual(speed._attr_state_class,"measurement")
@@ -83,6 +88,10 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
                        ("aaos_drive", "sensor", prefix+"trip.distanceKm", "sensor.trip"),
                        ("aaos_drive", "sensor", prefix+"dataset.totalTripCount", "sensor.dataset"),
                        ("aaos_drive", "sensor", prefix+"telemetry.recordedAt", "sensor.time"),
+                       ("aaos_drive", "sensor", prefix+"telemetry.fuelDoorOpen", "sensor.old_fuel_door"),
+                       ("aaos_drive", "sensor", prefix+"telemetry.fuelLevelLow", "sensor.old_fuel_warning"),
+                       ("aaos_drive", "sensor", prefix+"telemetry.vehicleType", "sensor.old_vehicle_type"),
+                       ("aaos_drive", "binary_sensor", prefix+"telemetry.fuelDoorOpen", "binary_sensor.fuel_door"),
                        ("aaos_drive", "sensor", prefix+"telemetry.speedKph", "sensor.speed"),
                        ("other", "sensor", prefix+"month.distanceKm", "sensor.other"),
                        ("aaos_drive", "button", prefix+"dataset.refresh", "button.refresh"),
@@ -93,7 +102,8 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
         with patch.dict(sys.modules, {"homeassistant.helpers.entity_registry": fake}):
             remove_legacy_entities(SimpleNamespace(), self.entry)
         removed = {call.args[0] for call in registry.async_remove.call_args_list}
-        self.assertEqual(removed, {"sensor.month", "sensor.make", "sensor.trip", "sensor.dataset", "sensor.time"})
+        self.assertEqual(removed, {"sensor.month", "sensor.make", "sensor.trip", "sensor.dataset", "sensor.time",
+                                  "sensor.old_fuel_door", "sensor.old_fuel_warning", "sensor.old_vehicle_type"})
 
     async def test_read_failure_makes_entities_unavailable_but_refresh_retry_possible(self):
         self.coordinator.last_update_success = False

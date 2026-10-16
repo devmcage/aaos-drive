@@ -9,13 +9,23 @@ More details can be found at: https://mcagesoft.nl
 
 User documentation: [Detailed installation guide](docs/INSTALLATION.md) and [Complete attribute and data reference](docs/ATTRIBUTES.md).
 
-Version **0.4.5** supports Drive sync **V3**, TripLog day format **1**, trip schema **17**, and Home Assistant **2026.9 or later**. The Android app does not need changes. The integration and trip dashboard use the [official AAOS Logging artwork](icon/README.md).
+Version **0.4.6** supports Drive sync **V3**, TripLog day format **1**, trip schema **17**, and Home Assistant **2026.9 or later**. Fuel/hybrid readings require an export containing the optional powertrain extension; existing electric exports remain supported. The integration and trip dashboard use the [official AAOS Logging artwork](icon/README.md).
 
-Version 0.4.5 uses the updated official AAOS Logging logo: the white car and green route. The source artwork is preserved in both Home Assistant icon sizes.
+Version 0.4.6 supports the AAOS Logging 1.00.6 fuel/hybrid extension: fuel remaining, tank capacity, fuel economy, low-fuel and fuel-door states, vehicle identification, and the app’s per-trip moving-fuel, coverage and engine-observation metrics. Battery electricity and fuel stay separate. The integration retains the official white-car and green-route logo.
 
 The integration follows a combined history published in the same configured Drive folder when the logger explicitly identifies the original dataset as merged. It validates the complete history and preserves previously imported trips, existing entity IDs and the selected folder. Charts automatically load all pages for the selected period.
 
-The integration matches the AAOS Logging 1.00.5 export writers, including uniform compressed daily archives across all months, merged-history catalog metadata and power-signal direction. Corrected power and trip-energy history is imported as supplied by the app; Home Assistant does not invert it again.
+The integration matches the AAOS Logging 1.00.6 export writers, including uniform compressed daily archives across all months, merged-history catalog metadata and power-signal direction. Corrected power and trip-energy history is imported as supplied by the app; Home Assistant does not invert it again.
+
+## Fuel and hybrid vehicles
+
+Fuel measurements retain their original litres and L/100 km. Fuel-door and low-fuel readings are nullable binary sensors. Vehicle type and its AAOS identification source are sensor attributes and historical metadata, without creating specification entities.
+
+The trip dashboard charts fuel readings and per-trip fuel metrics. Selecting a fuel/hybrid trip shows the exported moving-fuel estimate, sampled-distance coverage, engine running/observation time and engine-off moving time. These summaries are calculated by the logger from valid adjacent intervals up to ten seconds. They exclude stationary fuel and missing intervals; falling tank levels are not treated as consumption. Engine-off moving includes coasting and is not proof of electric-only driving.
+
+Hybrid kWh values describe only net traction-battery energy. Negative power may include engine-driven charging. Electricity is never added to fuel or presented as total propulsion energy. Unknown fuel readings and unmeasured battery energy remain unknown; zero is preserved when actually recorded. Older exports have no retroactive fuel data.
+
+Existing installations rebuild cached trip summaries locally after upgrading. A new Drive export is not required for that processing update. Historical fuel-economy series incorrectly labeled as distance by older generic field handling are relabeled in place.
 
 ## Recorded history
 
@@ -55,7 +65,7 @@ HACS installs and updates the integration files. Each user still configures thei
 
 ### Manual installation
 
-1. Download `aaos-drive-0.4.5.zip` from the [GitHub release](https://github.com/devmcage/aaos-drive/releases/latest) and unzip it.
+1. Download `aaos-drive-0.4.6.zip` from the [GitHub release](https://github.com/devmcage/aaos-drive/releases/latest) and unzip it.
 2. Copy the **whole `custom_components/aaos_drive` folder** into `/config/custom_components/aaos_drive`, replacing the earlier version when upgrading.
 3. Restart Home Assistant.
 4. Complete a Google Drive sync in AAOS Logging. In Drive, copy the URL of `AAOSLogging/<car-name>_<vehicle-id>`, the vehicle folder containing `Sync` and `Backup`.
@@ -63,7 +73,7 @@ HACS installs and updates the integration files. Each user still configures thei
 6. Allow the first full history import to finish. Large datasets need more time and local disk space.
 7. Open **AAOS history** in the sidebar. Each vehicle dataset can be configured separately.
 
-Existing installations keep their configuration, imported history and measured-sensor unique IDs. Restarting after upgrading automatically removes the integration's obsolete month/trip/dataset/specification sensor entries from the entity registry. Dashboards referencing those removed summaries need updating. Sensor names use **Telemetry**, **Route** and **Weather**; custom names on retained entities are preserved. Update an existing dashboard resource URL to `/aaos_drive/history.js?v=0.4.5` and refresh the browser.
+Existing installations keep their configuration, imported history and measured-sensor unique IDs. Restarting after upgrading automatically removes the integration's obsolete month/trip/dataset/specification sensor entries from the entity registry. Dashboards referencing those removed summaries need updating. Sensor names use **Telemetry**, **Route** and **Weather**; custom names on retained entities are preserved. Update an existing dashboard resource URL to `/aaos_drive/history.js?v=0.4.6` and refresh the browser.
 
 Upgrading to 0.4.1 applies the empty-sensor visibility default once to existing AAOS measurement entities, using all locally imported history even when Drive has not changed. Existing user-hidden entities are left hidden. Later manual show/hide choices are preserved across refreshes and restarts. Buttons, diagnostic entities and the position tracker are unaffected.
 
@@ -142,7 +152,7 @@ ZIPs are decoded in memory and never extracted. Each compressed file or decoded 
 - Only exported information can be imported. Live-only app fields absent from TelemetryJsonContract cannot be reconstructed.
 - The history sidebar and its WebSocket API require a Home Assistant administrator account. Data stays between Home Assistant and Google Drive.
 
-See the [attribute and data reference](docs/ATTRIBUTES.md) for all 69 telemetry keys, entity attributes, trip measurements and metadata, with units and interpretation.
+See the [attribute and data reference](docs/ATTRIBUTES.md) for all 76 telemetry keys, entity attributes, trip measurements and metadata, with units and interpretation.
 
 ## Verification
 

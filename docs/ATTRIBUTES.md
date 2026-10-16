@@ -1,6 +1,6 @@
 # AAOS Logging Drive — attributes and data reference
 
-This document explains the data available in integration **0.4.5**, using AAOS Logging's Drive sync **V3** and trip schema **17**. It covers all **69 telemetry fields**, route/weather fields, trip measurements, vehicle specifications, export metadata and integration-added entity attributes. Installation and dashboard setup are described in [INSTALLATION.md](INSTALLATION.md).
+This document explains the data available in integration **0.4.6**, using AAOS Logging's Drive sync **V3** and trip schema **17**. It covers all **76 telemetry fields**, route/weather fields, trip measurements, vehicle specifications, export metadata and integration-added entity attributes. Installation and dashboard setup are described in [INSTALLATION.md](INSTALLATION.md).
 
 The names below are the exact source/history keys. Home Assistant displays readable names, such as **Telemetry battery percent**, and assigns entity IDs that may vary between installations. Use the entity's `history_field` attribute to find its source key.
 
@@ -53,7 +53,7 @@ Left/right wheel and seat labels refer to the vehicle's left/right side. Front-l
 
 ## Telemetry fields
 
-Each `telemetry.*` value belongs to an original telemetry sample. There are **58 measured sensor fields**, **8 binary sensor fields**, and **2 timestamp/source metadata fields**. Tables label raw enums as **code**; they are categorical states, not physical quantities.
+Each `telemetry.*` value belongs to an original telemetry sample. There are **61 measured sensor fields**, **10 binary sensor fields**, and **5 timestamp/source metadata fields**. Tables label raw enums as **code**; they are categorical states, not physical quantities.
 
 ### Time, speed, pedals and motion
 
@@ -66,13 +66,29 @@ Each `telemetry.*` value belongs to an original telemetry sample. There are **58
 | `telemetry.lateralG` | Number; g | Sideways acceleration estimated by the logger's motion processing. Compare absolute magnitude for cornering intensity; retain the sign for the source's sideways direction. |
 | `telemetry.longitudinalG` | Number; g | Forward/backward acceleration from the logger. Positive values contribute to acceleration peaks; negative values to braking peaks. `-0.2 g` is braking magnitude of about 0.2 g. |
 | `telemetry.steeringAngleDeg` | Number; ° | Steering angle from the vehicle property. Magnitude describes steering displacement; confirm the source's sign convention before labeling left/right turns. |
-| `telemetry.rangeKm` | Number; km | Estimated remaining driving range reported by the vehicle. It is not trip distance or an odometer and can change as the vehicle updates its estimate. |
+| `telemetry.rangeKm` | Number; km | Estimated remaining driving range reported by the vehicle. It is not trip distance or an odometer and can change as the vehicle updates its estimate. A hybrid’s reported range may combine fuel and battery; it is not assumed to be electric-only. |
+
+### Vehicle type, fuel and hybrid readings
+
+These fields are optional additions in AAOS Logging 1.00.6. Stored units stay metric even when the car app displays US gallons or US MPG.
+
+| Field | Value / unit | Meaning and interpretation |
+| --- | --- | --- |
+| `telemetry.vehicleType` | Text; metadata | Recorded `ELECTRIC`, `HYBRID`, `FUEL` or `UNKNOWN` classification. Exposed as the `vehicle_type` attribute and raw history, without a separate metadata sensor. |
+| `telemetry.vehicleTypeSource` | Text or null; metadata | AAOS evidence used by the logger for that sample’s classification. Exposed as `vehicle_type_source`; it is not inferred from a model name. |
+| `telemetry.fuelLevelLiters` | Number; L | Reported remaining fuel. Stored-volume sensor; a tank-level drop is not interpreted as fuel burned. |
+| `telemetry.fuelCapacityLiters` | Number; L | Tank capacity available for that observation. Separate from the catalog’s static capacity. |
+| `telemetry.fuelConsumptionLitersPer100Km` | Number; L/100 km | Direct reported distance-based fuel economy. Lower positive readings mean less fuel per distance. Zero is a valid reading; null is unknown. It cannot measure stationary fuel use. |
+| `telemetry.fuelLevelLow` | Boolean or null | Reported low fuel/energy warning. Binary problem sensor: true indicates a warning, false no reported warning, null unavailable. The integration does not invent a threshold. |
+| `telemetry.fuelDoorOpen` | Boolean or null | Reported fuel-door state. Binary opening sensor: true open, false closed, null unavailable. It does not describe the EV charge port. |
+
+The logger classifies electricity-only fuel types as electric, electricity plus combustion fuel as plug-in hybrid, and fuel plus traction-battery evidence as hybrid. A fuel vehicle without exposed battery evidence is labeled `FUEL`; this cannot rule out a hybrid whose manufacturer hides that data. Conflicting or insufficient evidence stays `UNKNOWN`. Hydrogen/fuel-cell or other unclassified powertrains are not assumed to be combustion hybrids. Home Assistant preserves the exported classification and source instead of repeating the inference. Old untyped trips are not retroactively classified.
 
 ### Battery, power and charging
 
 | Field | Value / unit | Meaning and interpretation |
 | --- | --- | --- |
-| `telemetry.powerKw` | Number; kW | Instantaneous battery power in the logger's convention: positive consumption, negative energy flowing into the battery, including regeneration. Check `powerSource` to distinguish direct measurements from estimates. |
+| `telemetry.powerKw` | Number; kW | Instantaneous traction-battery power in the logger's convention: positive consumption, negative energy flowing into the battery. On hybrids, negative power can include engine-driven charging as well as regeneration; it is not total propulsion power. Check `powerSource` to distinguish direct measurements from estimates. |
 | `telemetry.powerSource` | Text; metadata | Origin of the power value. Codes are explained below. Exposed as the telemetry entity attribute `power_source` and retained in raw history; no separate power-source sensor is created. |
 | `telemetry.powerSignalDirection` | Text; metadata | `STANDARD` or `REVERSED`: the logger's selected vehicle power-signal direction used when normalizing direct readings. The exported `powerKw` is already normalized; do not reverse it again. Exposed as `power_signal_direction`, retained in raw history and absent/null in older exports. No separate sensor is created. |
 | `telemetry.batteryEnergyWh` | Number; Wh | Remaining traction-battery energy reported by the vehicle. Divide by 1,000 for kWh. It is not energy used since the previous trip. |
@@ -262,9 +278,12 @@ Latitude/longitude have stable measured entities and raw trip-history fields. Th
 | `trip.endedAt` | Unix ms or null | Trip ending time. A missing end cannot supply a computed duration. |
 | `trip.storageUnitSystem` | Text | Storage unit convention; this importer expects `metric`. Display preferences do not change it. |
 | `trip.distanceKm` | Number; km | Saved total trip distance, chosen by the logger from available odometer/GPS/speed-derived distance. It is not an odometer value. |
-| `trip.energyKwh` | Number; kWh | Net energy used over the trip; positive consumption, negative net energy gain. Regeneration offsets consumption. It is not lifetime usage. |
+| `trip.energyKwh` | Number; kWh | Net traction-battery energy over the trip; positive battery consumption, negative net battery charging. On hybrids this is only the electrical side, not fuel or total propulsion energy. A fuel/hybrid summary is null when `energySource` is unknown; `get_trip` retains the original numeric export unchanged. |
 | `trip.energySource` | Text | Provenance of trip energy: direct vehicle readings, derived battery-energy changes, mixed sources or unknown; see the source-string table. |
 | `trip.powerSignalDirection` | Text; metadata | Power direction selected when the app recorded or corrected the trip, usually `STANDARD` or `REVERSED`. Exported `energyKwh` already includes the app's correction. Older exports can omit this field. |
+| `trip.vehicleType` | Text or null; metadata | Vehicle type recorded for this trip. Missing legacy classification remains missing. |
+| `trip.vehicleTypeSource` | Text or null; metadata | Source of the trip’s vehicle-type identification. |
+| `trip.powertrainSchemaVersion` | Integer or null | Optional additive powertrain extension version, currently 1; the base trip schema remains 17. |
 | `trip.averageSpeedKph` | Number; km/h | Average speed saved by the logger. Its current calculation is the mean of collected speed samples, rather than necessarily `distance / duration`. |
 | `trip.maxSpeedKph` | Number; km/h | Highest speed observed by the logger during the trip. Sample frequency limits which peaks can be captured. |
 | `trip.maxAccelerationG` | Number; g | Largest positive longitudinal acceleration saved for the trip. A summary 0 can be the logger's initialized maximum; inspect raw samples to confirm measurement availability. |
@@ -294,6 +313,29 @@ Complete original trip JSON additionally contains:
 
 For the current logger, a trip follows Park → leave Park → meaningful driving → confirmed return to Park. Brief manoeuvres may not qualify. Home Assistant imports the app's saved trips; it does not detect new trips itself. A source correction or deletion is applied when a complete replacement Drive generation is accepted.
 
+### Per-trip fuel estimates and engine observations
+
+The `trip.fuelUsage.*` fields retain the app’s published `fuelUsage` object for fuel/hybrid trips. Home Assistant does not calculate fuel use from tank deltas or invent missing readings. Numeric fields can be selected on the trip dashboard; points use the trip’s ending timestamp. No extra last-trip entities are created.
+
+| Field | Value / unit | Meaning and interpretation |
+| --- | --- | --- |
+| `trip.fuelUsage.movingFuelLiters` | Number; L or null | Estimated fuel for valid moving sample intervals. It excludes stationary fuel and gaps; it is not a complete trip-fuel total. Real zero remains zero. |
+| `trip.fuelUsage.movingConsumptionLitersPer100Km` | Number; L/100 km or null | Moving fuel divided by covered distance times 100. Uses the covered distance, not the full trip distance. |
+| `trip.fuelUsage.coveredDistanceKm` | Number; km | Speed-integrated distance with valid fuel-economy readings at both interval endpoints. |
+| `trip.fuelUsage.observedDistanceKm` | Number; km | Speed-integrated distance across valid adjacent speed observations, including those lacking fuel economy. |
+| `trip.fuelUsage.tripDistanceKm` | Number; km | Logger’s saved total trip distance for reference. May differ from speed-integrated observed distance. |
+| `trip.fuelUsage.engineRunningSeconds` | Number; s or null | Observed intervals whose two endpoint RPM readings are both above zero. Null when RPM was never observable; zero is a measured result. |
+| `trip.fuelUsage.engineObservedSeconds` | Number; s | Duration covered by valid RPM readings at both interval endpoints. Zero means no such intervals. |
+| `trip.fuelUsage.engineOffMovingSeconds` | Number; s or null | Intervals with zero RPM and speed at least 3 km/h at both endpoints. Includes coasting; does not establish electric-only driving. Null if suitable joint speed/RPM observations are unavailable. |
+| `trip.fuelUsage.coveragePercent` | Number; % or null; derived | Integration-added `coveredDistanceKm / observedDistanceKm × 100`, capped at 100 for extension version 1. Null if observed distance is absent/zero. Describes sampled distance, not percentage of total fuel captured. It is added to summaries, without modifying original `get_trip` JSON. |
+| `trip.fuelUsage.source` | Text | Currently `derived_from_aaos_fuel_economy_and_speed`. Identifies an estimate, not a fuel-flow meter. |
+| `trip.fuelUsage.includesStationaryFuel` | Boolean | False in extension version 1: idling fuel is not measured by distance-based economy. |
+| `trip.fuelUsage.limitations` | Text | Logger’s explanation of the estimate’s gaps and exclusions. |
+
+The logger sorts each trip’s samples, uses only adjacent intervals longer than zero and no more than ten seconds, and excludes missing, negative or non-finite speed/economy readings. Fuel estimation integrates the endpoint economy × speed products over time. Missing endpoints are not bridged; tank-level changes are never consumption. Engine observations use RPM independently of whether fuel economy is present. The integration imports these published results rather than recomputing them with a different algorithm.
+
+For a combined period’s moving economy, divide the sum of known moving litres by the sum of their covered kilometres and multiply by 100. Do not average per-trip economy equally or divide by full trip distance. Native hourly statistics are arithmetic means/minima/maxima, not a distance-weighted period economy or a cumulative fuel total. Use the trip data for that calculation.
+
 ## Home Assistant entity attributes
 
 Open an entity under **Developer tools → States** to inspect its current state and attributes. These attributes describe the current imported snapshot; they are not arrays containing every historic reading.
@@ -309,6 +351,9 @@ Open an entity under **Developer tools → States** to inspect its current state
 | `generation_id` | Identifier of the accepted Drive export generation. Several polls can use the same generation; it is not a trip timestamp. |
 | `trip_id` | Exported ID of the latest trip for telemetry/weather/route entities. The position and utility entities currently leave this attribute null. Historical sample responses carry each sample's actual trip ID. |
 | `data_source` | Text identifying the source as `AAOS Logging Google Drive snapshot`. Values represent recorded exports, not a live car connection. |
+| `vehicle_type` | Recorded vehicle classification for the sample/trip, falling back to published catalog metadata only when the field is absent. Explicit `UNKNOWN` is preserved. |
+| `vehicle_type_source` | Recorded identification source from the same available context. |
+| `energy_scope` | On battery power, energy and percentage sensors, `traction_battery`: fuel and total propulsion energy are separate. |
 | `power_source` | On telemetry entities, the latest telemetry sample's `powerSource`. It describes that sample's power provenance, even when inspecting another telemetry sensor. |
 | `power_signal_direction` | On telemetry entities, the latest sample's `powerSignalDirection`, when exported. It describes the normalization already applied by the logger, rather than an instruction to invert the value. |
 | `last_checked_at` | On the Refresh Drive data button, UTC ISO time at which the most recent Drive check began; also available to the trip dashboard. Failed checks advance this time. |
@@ -373,6 +418,9 @@ These fields are available through `get_catalog` under `catalog.vehicle`. Metada
 
 | Path under `vehicle.specifications` | Meaning and interpretation |
 | --- | --- |
+| `vehicleType` | Current logger classification: ELECTRIC, HYBRID, FUEL or UNKNOWN. |
+| `vehicleTypeSource` | AAOS evidence/reason used for the current classification. |
+| `vehicleTypeExplanation` | Logger’s human-readable explanation and identification limitations. |
 | `nominalEvBatteryCapacityWh` | Nominal/new battery capacity in Wh. It is not measured remaining battery energy or necessarily current usable capacity. |
 | `nominalEvBatteryCapacityKwh` | Same nominal capacity divided by 1,000, in kWh. Do not add it to the Wh value. |
 | `fuelCapacityMilliliters` | Nominal fuel capacity in mL, when reported. |
@@ -513,7 +561,7 @@ Full-history actions (`get_history`, `get_history_fields`, `get_trip`, `list_tri
 
 Each field description contains `field` (exact key), `name` (readable label), `unit` (raw-history display unit), `timestamp_value` (whether its value is a timestamp), `statistic_unit` (eligible aggregate unit or null), `statistic_factor` (conversion applied to statistics) and `categorical` (boolean/enum classification). Raw `drivingTimeMs` values remain milliseconds while their statistic unit is seconds with factor 0.001.
 
-The sidebar's authenticated field response additionally includes a per-field `statistic_id` and `external_statistic_id`, plus `drive_available` and any `statistics_error`. Its field selector is restricted to measured telemetry/weather/route fields. Actions expose the fuller inventory.
+The sidebar's authenticated field response additionally includes a per-field `statistic_id` and `external_statistic_id`, plus `drive_available` and any `statistics_error`. Its field selector includes measured telemetry/weather/route fields and numeric per-trip fuel/engine summaries. Actions expose the fuller inventory.
 
 ### Timestamped history response
 
@@ -530,7 +578,7 @@ The response also includes the field-description keys explained above: `name`, `
 
 The trip dashboard follows every page automatically. API clients should follow `next_cursor` with the same field, trip and bounds to retrieve all pages. Cursors belong to that query and accepted generation; restart if a new generation invalidates them. Do not interpret the first page as the entire trip.
 
-The dashboard's trip selector uses a compact trip index with `trip_id`, `started_at`, `ended_at`, `sample_start`, `sample_end`, `distance_km`, `energy_kwh`, `duration_seconds`, `telemetry_count`, `route_count` and `weather_count`. Start/end/sample bounds are Unix ms. Sample bounds can extend beyond the trip when cached observations have older timestamps; the selected-trip chart uses the trip's exact start/end bounds. Trip choices are separate from the field's sample records.
+The dashboard's trip selector uses a compact trip index with `trip_id`, `started_at`, `ended_at`, `sample_start`, `sample_end`, `distance_km`, `energy_kwh`, `energy_source`, `vehicle_type`, `vehicle_type_source`, `fuel_usage`, `duration_seconds`, `telemetry_count`, `route_count` and `weather_count`. Start/end/sample bounds are Unix ms. Sample bounds can extend beyond the trip when cached observations have older timestamps; the selected-trip chart uses the trip's exact start/end bounds. Trip choices are separate from the field's sample records.
 
 ### CSV export
 

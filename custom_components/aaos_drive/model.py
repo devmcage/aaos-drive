@@ -206,11 +206,21 @@ def flatten(value: dict, prefix: str = "") -> dict:
 
 def trip_summary(trip: dict) -> dict:
     out = {k: v for k, v in trip.items() if k not in {"telemetry", "route", "weatherSamples", "weather"}}
+    # Fuel/hybrid exports retain a legacy numeric energy slot even when no
+    # battery energy was measured. The original record remains unchanged.
+    if trip.get("vehicleType") in {"FUEL", "HYBRID"} and trip.get("energySource") in {None, "unknown"}:
+        out["energyKwh"] = None
     start, end = trip.get("startedAt"), trip.get("endedAt")
     out["durationSeconds"] = (end - start) / 1000 if integer(start) and integer(end) and end >= start else None
-    distance, energy = trip.get("distanceKm"), trip.get("energyKwh")
+    distance, energy = trip.get("distanceKm"), out.get("energyKwh")
     out["efficiencyKwhPer100Km"] = energy / distance * 100 if finite(distance) and distance > 0 and finite(energy) else None
     out.update(telemetryCount=len(trip.get("telemetry", [])), routePointCount=len(trip.get("route", [])), weatherSampleCount=len(trip.get("weatherSamples", [])))
+    usage = trip.get("fuelUsage")
+    if isinstance(usage, dict):
+        out["fuelUsage"] = dict(usage)
+        covered, observed = usage.get("coveredDistanceKm"), usage.get("observedDistanceKm")
+        if "coveragePercent" not in usage and trip.get("powertrainSchemaVersion") == 1:
+            out["fuelUsage"]["coveragePercent"] = min(100, covered / observed * 100) if finite(covered) and covered >= 0 and finite(observed) and observed > 0 else None
     return out
 
 
@@ -251,6 +261,7 @@ class Snapshot:
         summary = trip_summary(self.trip) if self.trip else {}
         values = {f"telemetry.{k}": telemetry.get(k) for k in set(TELEMETRY_FIELDS) | telemetry.keys()}
         values.update({f"trip.{k}": summary.get(k) for k in set(TRIP_FIELDS) | summary.keys()})
+        values.update({f"trip.{k}": value for k, value in flatten(summary).items()})
         values.update({f"weather.{k}": weather.get(k) for k in set(WEATHER_FIELDS) | weather.keys()})
         values.update({f"route.{k}": self.route.get(k) for k in {"recordedAt", "latitude", "longitude"} | self.route.keys()})
         values.update({f"vehicle.{k}": v for k, v in flatten(self.catalog.get("vehicle", {})).items()})

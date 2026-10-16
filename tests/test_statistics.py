@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import AsyncMock, Mock
 
 from . import bootstrap, ha_stub
-from .fixtures import FakeDrive, day_document
+from .fixtures import FakeDrive, day_document, fuel_day
 from custom_components.aaos_drive.history import HistoryStore, sync_history, statistic_id
 from custom_components.aaos_drive.repository import DriveRepository
 
@@ -26,9 +26,10 @@ class StatisticsTests(unittest.IsolatedAsyncioTestCase):
         self.recorder=SimpleNamespace(async_clear_statistics=Mock(),async_block_till_done=AsyncMock())
         self.add=Mock()
         self.native_add=Mock()
+        self.unit_update=Mock()
         ha_stub.module("homeassistant.components.recorder",get_instance=lambda hass:self.recorder)
         ha_stub.module("homeassistant.components.recorder.models",StatisticMeanType=IntEnum("MeanType",{"ARITHMETIC":1}))
-        ha_stub.module("homeassistant.components.recorder.statistics",async_add_external_statistics=self.add,async_import_statistics=self.native_add)
+        ha_stub.module("homeassistant.components.recorder.statistics",async_add_external_statistics=self.add,async_import_statistics=self.native_add,async_update_statistics_metadata=self.unit_update)
         self.entry=SimpleNamespace(entry_id="entry1",title="Test car",unique_id="vehicle-a:dataset-a")
         self.registry_entries=[SimpleNamespace(platform="aaos_drive",domain="sensor",entity_id=entity_id,
                                               unique_id=self.entry.unique_id+":"+field)
@@ -41,6 +42,7 @@ class StatisticsTests(unittest.IsolatedAsyncioTestCase):
         self.module.get_instance=lambda hass:self.recorder
         self.module.async_add_external_statistics=self.add
         self.module.async_import_statistics=self.native_add
+        self.module.async_update_statistics_metadata=self.unit_update
         self.module.er=self.er
         self.module.native_hour_cutoff=lambda: 2**63-1
         self.hass=SimpleNamespace(async_add_executor_job=asyncio.to_thread)
@@ -64,6 +66,26 @@ class StatisticsTests(unittest.IsolatedAsyncioTestCase):
         self.recorder.async_block_till_done.assert_awaited_once()
         self.assertFalse(self.history.state()["statistics_pending"])
 
+    async def test_fuel_units_and_observed_trip_metrics_reach_recorder_separately_from_battery(self):
+        self.repo.drive.publish(2, uniform=True, include_history=False, latest_day=fuel_day())
+        snapshot = await self.repo.refresh()
+        await sync_history(self.history, self.repo, snapshot, asyncio.to_thread)
+        self.registry_entries.extend(SimpleNamespace(platform="aaos_drive",domain="sensor",entity_id=entity,
+            unique_id=self.entry.unique_id+":"+field) for field,entity in (
+                ("telemetry.fuelLevelLiters","sensor.fuel_remaining"),
+                ("telemetry.fuelConsumptionLitersPer100Km","sensor.fuel_economy")))
+        await self.module.sync_statistics(self.hass,self.entry,self.history)
+        native={call.args[1]["statistic_id"]:call for call in self.native_add.call_args_list}
+        self.assertEqual(native["sensor.fuel_remaining"].args[1]["unit_of_measurement"],"L")
+        self.assertEqual(native["sensor.fuel_economy"].args[1]["unit_of_measurement"],"L/100 km")
+        self.assertEqual(native["sensor.fuel_economy"].args[2][0]["mean"],6)
+        external={call.args[1]["statistic_id"]:call for call in self.add.call_args_list}
+        moving=external[statistic_id("entry1","trip.fuelUsage.movingFuelLiters")]
+        self.assertEqual(moving.args[1]["unit_of_measurement"],"L")
+        self.assertFalse(moving.args[1]["has_sum"])
+        self.assertEqual(moving.args[2][0]["mean"],0.004)
+        self.assertEqual(external[statistic_id("entry1","trip.energyKwh")].args[2][0]["mean"],-0.01)
+
     async def test_repeat_and_new_generation_unchanged_measurements_do_not_requeue(self):
         await self.module.sync_statistics(self.hass,self.entry,self.history)
         self.add.reset_mock()
@@ -74,6 +96,30 @@ class StatisticsTests(unittest.IsolatedAsyncioTestCase):
         await sync_history(self.history,self.repo,snapshot,asyncio.to_thread)
         await self.module.sync_statistics(self.hass,self.entry,self.history)
         self.add.assert_not_called()
+
+    async def test_upgrade_corrects_legacy_fuel_units_without_deleting_history(self):
+        self.repo.drive.publish(2, uniform=True, include_history=False, latest_day=fuel_day())
+        snapshot = await self.repo.refresh()
+        await sync_history(self.history,self.repo,snapshot,asyncio.to_thread)
+        self.registry_entries.append(SimpleNamespace(platform="aaos_drive",domain="sensor",entity_id="sensor.my_fuel",
+            unique_id=self.entry.unique_id+":telemetry.fuelConsumptionLitersPer100Km"))
+        await self.module.sync_statistics(self.hass,self.entry,self.history)
+        old=self.history.statistics_state()
+        for record in old.values():
+            record.pop("unit",None)
+        self.history.statistics_done(old)
+        with self.history.connect() as db:
+            self.history.put(db,"statistics_pending",True)
+        self.recorder.async_clear_statistics.reset_mock()
+        await self.module.sync_statistics(self.hass,self.entry,self.history)
+        fixed={call.args[1] for call in self.unit_update.call_args_list}
+        self.assertEqual(fixed,{"sensor.my_fuel",statistic_id("entry1","telemetry.fuelConsumptionLitersPer100Km"),
+                                statistic_id("entry1","trip.fuelUsage.movingConsumptionLitersPer100Km")})
+        self.assertTrue(all(call.kwargs=={"new_unit_of_measurement":"L/100 km","new_unit_class":None} for call in self.unit_update.call_args_list))
+        self.recorder.async_clear_statistics.assert_not_called()
+        self.unit_update.reset_mock()
+        await self.module.sync_statistics(self.hass,self.entry,self.history)
+        self.unit_update.assert_not_called()
 
     async def test_current_app_power_correction_replaces_native_and_external_hours(self):
         await self.module.sync_statistics(self.hass,self.entry,self.history)

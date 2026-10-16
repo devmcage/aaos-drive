@@ -32,7 +32,7 @@ class AAOSHistory extends HTMLElement {
   build(){
     this.built=true;
     this.shadowRoot.innerHTML=`<style>${STYLE}</style><main>
-      <header class="brand-header"><img class="brand-icon" src="/aaos_drive/icon.png?v=0.4.5" width="56" height="56" alt="AAOS Logging"><div><h1>AAOS trip dashboard</h1><p>Choose a trip or date range to chart each recorded car sensor at its original timestamp.</p></div></header>
+      <header class="brand-header"><img class="brand-icon" src="/aaos_drive/icon.png?v=0.4.6" width="56" height="56" alt="AAOS Logging"><div><h1>AAOS trip dashboard</h1><p>Choose a trip or date range to chart each recorded car sensor at its original timestamp.</p></div></header>
       <div class="controls"><label>Vehicle<select id="vehicle"></select></label>
       <label>Trip<select id="trip"><option value="">All trips in the period</option></select></label><button id="older" hidden>Load older trips</button>
       <label class="field">Find a sensor or measurement<input id="search" type="search" placeholder="Speed, battery, brakes, weather…"><select id="field"></select></label>
@@ -186,7 +186,21 @@ class AAOSHistory extends HTMLElement {
   }
   tripSummary(){
     const t=this.trips?.find(t=>t.trip_id===this.$("trip").value);
-    this.$("tripinfo").textContent=t?`${new Date(t.started_at).toLocaleString()} — ${new Date(t.ended_at).toLocaleTimeString()} · ${t.telemetry_count.toLocaleString()} telemetry samples · ${t.route_count.toLocaleString()} route points${t.energy_kwh===null?"":` · ${t.energy_kwh.toLocaleString(undefined,{maximumFractionDigits:2})} kWh`}`:"Separate trips keep their own recorded samples; the chart does not connect them.";
+    if(!t){this.$("tripinfo").textContent="Separate trips keep their own recorded samples; the chart does not connect them. Fuel estimates and battery energy remain separate.";return;}
+    const number=value=>typeof value==="number"&&Number.isFinite(value)?value.toLocaleString(undefined,{maximumFractionDigits:4}):"Unknown";
+    const fuel=t.vehicle_type==="FUEL"||t.vehicle_type==="HYBRID";
+    const parts=[`${new Date(t.started_at).toLocaleString()} — ${new Date(t.ended_at).toLocaleTimeString()}`,`${t.telemetry_count.toLocaleString()} telemetry samples`,`${t.route_count.toLocaleString()} route points`];
+    if(t.vehicle_type)parts.push(t.vehicle_type);
+    if(t.energy_kwh!==null&&t.energy_kwh!==undefined)parts.push(`${number(t.energy_kwh)} kWh${fuel?" battery net energy only":""}`);
+    if(fuel){
+      const usage=t.fuel_usage||{};
+      parts.push(`Moving fuel estimate: ${number(usage.movingFuelLiters)} L`,`${number(usage.movingConsumptionLitersPer100Km)} L/100 km`,
+        `Sampled-distance coverage: ${number(usage.coveragePercent)}%`,
+        `Engine running: ${number(usage.engineRunningSeconds)} s / ${number(usage.engineObservedSeconds)} s observed`,
+        `Engine-off moving: ${number(usage.engineOffMovingSeconds)} s (includes coasting)`,
+        usage.includesStationaryFuel===false?"Excludes stationary fuel and missing intervals":"Check the export’s fuel-estimate limitations");
+    }
+    this.$("tripinfo").textContent=parts.join(" · ");
   }
   filterFields(preferred){
     const selected=preferred||this.$("field").value;
@@ -308,7 +322,7 @@ class AAOSHistory extends HTMLElement {
     const dateLabel=ms=>span>=86400000?new Date(ms).toLocaleDateString():new Date(ms).toLocaleTimeString();
     add("text",{x:80,y:290,class:"axis"},dateLabel(first));
     add("text",{x:right,y:290,class:"axis","text-anchor":"end"},dateLabel(last));
-    note.textContent=(numeric?"Original samples; gaps and separate trips remain separate.":"Recorded states and codes; Unknown remains unknown.")+` ${rows.length.toLocaleString()} samples.`;
+    note.textContent=(data.field.startsWith("trip.fuelUsage.")?"Per-trip summaries at recorded trip ends; moving fuel estimates exclude stationary use and missing intervals. Engine-off moving includes coasting.":numeric?"Original samples; gaps and separate trips remain separate.":"Recorded states and codes; Unknown remains unknown.")+` ${rows.length.toLocaleString()} samples.`;
   }
   async exportCSV(){
     const query={...this.loadedQuery},serial=++this.request;

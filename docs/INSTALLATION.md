@@ -2,7 +2,7 @@
 
 AAOS Logging Drive imports your car's completed, synced trips from Google Drive into Home Assistant. It creates a car device with measured sensors, retains every exported sample, and supplies a trip dashboard and historical numeric statistics.
 
-This guide covers integration **0.4.5**, Home Assistant **2026.9 or later**, AAOS Logging Drive sync **V3**, day-file format **1** and trip schema **17**. Its section order follows the [Home Assistant Google Drive guide](https://www.home-assistant.io/integrations/google_drive/). The setup steps below apply to **AAOS Logging Drive**, the custom integration supplied in this package.
+This guide covers integration **0.4.6**, Home Assistant **2026.9 or later**, AAOS Logging Drive sync **V3**, day-file format **1** and trip schema **17**. Its section order follows the [Home Assistant Google Drive guide](https://www.home-assistant.io/integrations/google_drive/). The setup steps below apply to **AAOS Logging Drive**, the custom integration supplied in this package.
 
 Each household uses its own Google account and OAuth credentials. The package includes no registered client ID or secret. You do not need to operate a separate website or authorization service.
 
@@ -125,7 +125,7 @@ HACS manages the files in `custom_components/aaos_drive`, including the built-in
 ### Install the custom integration files
 
 1. Make a Home Assistant backup before replacing an existing installation.
-2. Extract `aaos-drive-0.4.5.zip` on your computer.
+2. Extract `aaos-drive-0.4.6.zip` on your computer.
 3. Open Home Assistant's configuration directory using your normal file-access method. Home Assistant OS normally exposes it as `/config`. For a Container installation, use the host folder mounted at `/config`.
 4. Create `custom_components` inside that configuration directory if it does not exist.
 5. Copy the **whole** `aaos_drive` folder from the ZIP's `custom_components` directory into it. The result must include:
@@ -196,7 +196,17 @@ While open, the dashboard checks Home Assistant's local import status every minu
 
 The importer retries temporary read failures and generation-publication races with bounded backoff. Failed imports retain the last complete local history. Power corrections and changes to existing trips are detected through content hashes, even when their dates and the total trip count do not change. No database deletion or forced reimport is required.
 
-The current AAOS Logging 1.00.5 writers use compressed daily archives for all months and can publish combined histories with `mergedDatasetIds`. Both these exports and the earlier monthly archive layout are supported. When the dataset identity changes inside the same configured folder, the integration follows it only if the verified catalog explicitly includes the earlier dataset in its merged history and every previously imported trip is still present. Existing entity IDs and the folder setting are preserved; users do not need to add the integration again. If the app's **Reconnect or merge history** choice changes the destination vehicle folder, add the new destination folder as an AAOS Logging Drive entry in Home Assistant. Verify the combined history before removing the old entry.
+The current AAOS Logging 1.00.6 writers use compressed daily archives for all months and can publish combined histories with `mergedDatasetIds`. Both these exports and the earlier monthly archive layout are supported. When the dataset identity changes inside the same configured folder, the integration follows it only if the verified catalog explicitly includes the earlier dataset in its merged history and every previously imported trip is still present. Existing entity IDs and the folder setting are preserved; users do not need to add the integration again. If the app's **Reconnect or merge history** choice changes the destination vehicle folder, add the new destination folder as an AAOS Logging Drive entry in Home Assistant. Verify the combined history before removing the old entry.
+
+## Fuel and hybrid vehicles
+
+The AAOS Logging 1.00.6 powertrain extension remains compatible with Drive V3 and trip schema 17. The integration imports the app’s recorded vehicle type and identification source, fuel level/capacity in litres, fuel economy in L/100 km, low-fuel warning and fuel-door state. Missing fields on older exports remain unknown.
+
+On the trip dashboard, choose **Fuel consumption** for timestamped readings, or a **Trip moving fuel** / **Trip fuel sample coverage** field for per-trip reports. Selecting a fuel or hybrid trip also shows its exported fuel estimate and engine observation times. Per-trip measurements are historical data, without creating last-trip or month-specific sensor entities.
+
+Moving-fuel estimates cover valid adjacent samples up to ten seconds apart; they exclude stationary fuel use and missing intervals. Tank-level drops are not consumption. Engine-off moving includes coasting. Hybrid battery kWh and battery power remain electrical measurements, separate from fuel; charging may come from the engine as well as braking.
+
+Upgrade through HACS, restart and refresh your browser. The integration updates cached trip summaries locally and corrects old fuel-economy statistic units without requiring a changed Drive generation or deleting history. Existing generic fuel-door/warning sensor entries are replaced by the corresponding binary sensors. Preserve the configured entry and its local history.
 
 ## Sensors
 
@@ -224,7 +234,7 @@ The table displays up to the last 500 loaded primary-field records. That display
 
 The sidebar works immediately after installation. For a dashboard card:
 
-1. Add `/aaos_drive/history.js?v=0.4.5` as a dashboard resource of type **JavaScript module**. In the dashboard resources screen, use **Add resource**; enable Advanced mode in your profile if the resource settings are not visible.
+1. Add `/aaos_drive/history.js?v=0.4.6` as a dashboard resource of type **JavaScript module**. In the dashboard resources screen, use **Add resource**; enable Advanced mode in your profile if the resource settings are not visible.
 2. Edit your dashboard, add a **Manual** card, and paste:
 
    ```yaml
@@ -321,4 +331,4 @@ When reporting a problem, include the integration/Home Assistant versions, the a
 - [Google Drive scopes](https://developers.google.com/workspace/drive/api/guides/api-specific-auth): what read-only access permits.
 - [Google personal-use verification exception](https://support.google.com/cloud/answer/13464323?hl=en): personal OAuth app rules.
 
-Google and Home Assistant can change console labels and screens. Use the linked official instructions if a label differs. Integration-specific steps and defaults in this guide match version 0.4.5.
+Google and Home Assistant can change console labels and screens. Use the linked official instructions if a label differs. Integration-specific steps and defaults in this guide match version 0.4.6.

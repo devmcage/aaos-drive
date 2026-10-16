@@ -96,7 +96,13 @@ class AAOSEntity(CoordinatorEntity):
             "trip_id": (snapshot.trip or {}).get("tripId") if group in {"trip", "telemetry", "weather", "route"} else None,
             "data_source": "AAOS Logging Google Drive snapshot",
         }
+        specifications = snapshot.catalog.get("vehicle", {}).get("specifications", {})
+        context = snapshot.telemetry if group == "telemetry" else {}
+        attrs["vehicle_type"] = context.get("vehicleType", (snapshot.trip or {}).get("vehicleType", specifications.get("vehicleType")))
+        attrs["vehicle_type_source"] = context.get("vehicleTypeSource", (snapshot.trip or {}).get("vehicleTypeSource", specifications.get("vehicleTypeSource")))
         if group == "telemetry":
             attrs["power_source"] = snapshot.telemetry.get("powerSource")
             attrs["power_signal_direction"] = snapshot.telemetry.get("powerSignalDirection")
+            if field in {"powerKw", "batteryEnergyWh", "batteryPercent"}:
+                attrs["energy_scope"] = "traction_battery"
         return attrs

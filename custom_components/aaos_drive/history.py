@@ -11,7 +11,7 @@ from pathlib import Path
 import re
 import sqlite3
 
-from .const import BINARY_FIELDS, TELEMETRY_FIELDS, TRIP_FIELDS, WEATHER_FIELDS
+from .const import BINARY_FIELDS, HISTORY_PROCESSING_VERSION, TELEMETRY_FIELDS, TRIP_FIELDS, WEATHER_FIELDS
 from .measurements import car_sensor, series_info
 from .model import InvalidExport, flatten, integer, trip_summary
 
@@ -59,6 +59,18 @@ class HistoryStore:
                 CREATE TABLE IF NOT EXISTS statistics(field TEXT PRIMARY KEY, data TEXT);
                 PRAGMA user_version=1;
             """)
+            if self.meta(db, "processing_version") != HISTORY_PROCESSING_VERSION:
+                # Refresh only derived summary rows, locally and atomically.
+                # Original trips and telemetry never need a Drive redownload.
+                for record_id, sha, original in db.execute("""SELECT r.id,r.sha,t.data FROM records r
+                        JOIN trips t ON t.sha=r.sha AND t.trip_id=r.trip_id WHERE r.kind='trip'"""):
+                    values = {key: None for key in TRIP_FIELDS}
+                    values.update(flatten(trip_summary(json.loads(original))))
+                    db.execute("UPDATE records SET data=? WHERE id=?", (encoded(values), record_id))
+                    db.executemany("INSERT OR IGNORE INTO fields VALUES (?,?)", ((sha, f"trip.{key}") for key in values))
+                self.put(db, "processing_version", HISTORY_PROCESSING_VERSION)
+                if self.meta(db, "generation_id") is not None:
+                    self.put(db, "statistics_pending", True)
 
     @staticmethod
     def meta(db, key, default=None):
@@ -235,7 +247,9 @@ class HistoryStore:
                 summary = trip_summary(trip)
                 choices.append({"trip_id": trip_id, "started_at": started, "ended_at": trip.get("endedAt") or started,
                                 "sample_start": min(started, span[0] or started), "sample_end": max(trip.get("endedAt") or started, span[1] or started),
-                                "distance_km": trip.get("distanceKm"), "energy_kwh": trip.get("energyKwh"),
+                                "distance_km": trip.get("distanceKm"), "energy_kwh": summary.get("energyKwh"),
+                                "energy_source": trip.get("energySource"), "vehicle_type": trip.get("vehicleType"),
+                                "vehicle_type_source": trip.get("vehicleTypeSource"), "fuel_usage": summary.get("fuelUsage"),
                                 "duration_seconds": summary["durationSeconds"], "telemetry_count": summary["telemetryCount"],
                                 "route_count": summary["routePointCount"], "weather_count": summary["weatherSampleCount"]})
             next_cursor = {"generation_id": generation, "generation_revision": revision, "query": query, "started": page[-1][0], "trip_id": page[-1][1]} if len(rows) > limit else None
