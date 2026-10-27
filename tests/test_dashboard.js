@@ -142,6 +142,39 @@ async function run() {
   hybrid.tripSummary();
   assert.match(hybrid.$("tripinfo").textContent,/Moving fuel estimate: Unknown L/);
   assert.doesNotMatch(hybrid.$("tripinfo").textContent,/kWh/);
+  const recovered=card();
+  recovered.trips=[{trip_id:"recovered",started_at:1,ended_at:60001,telemetry_count:61,route_count:2,
+    vehicle_type:"ELECTRIC",energy_kwh:0.6,energy_quality:"recovered"}];
+  recovered.$("trip").value="recovered";recovered.tripSummary();
+  assert.match(recovered.$("tripinfo").textContent,/0.6 kWh/);
+  assert.match(recovered.$("tripinfo").textContent,/Estimated from battery energy/);
+  recovered.trips[0].energy_kwh=null;recovered.trips[0].energy_quality="unavailable";
+  recovered.tripSummary();
+  assert.match(recovered.$("tripinfo").textContent,/consumption unavailable/);
+  assert.doesNotMatch(recovered.$("tripinfo").textContent,/0 kWh/);
+  // Visible chart notes distinguish estimates, unavailable readings and genuine zeros.
+  context.document.createElementNS=()=>({setAttribute(){}});
+  const svg={clientWidth:600,replaceChildren(){},setAttribute(){},append(){}};
+  const note={};recovered.loadedQuery={start:1,end:60001};
+  recovered.chart([{time:1,value:null,quality:"unavailable",trip_id:"a"},
+    {time:60001,value:-36,quality:"estimated",trip_id:"a"}],{field:"telemetry.powerKw"},svg,note);
+  assert.match(note.textContent,/smoothed over 10–60 seconds/);
+  assert.match(note.textContent,/Regeneration remains negative/);
+  recovered.chart([{time:1,value:null,quality:"unavailable",trip_id:"a"}],{field:"telemetry.powerKw"},svg,note);
+  assert.match(note.textContent,/unavailable, not zero/);
+  let csvBlob;
+  context.Blob=Blob;
+  context.URL={createObjectURL(blob){csvBlob=blob;return "blob:test";},revokeObjectURL(){}};
+  context.setTimeout=()=>{};
+  context.document.createElement=()=>({click(){}});
+  recovered.samples=[{time:1,value:36}];
+  recovered.call=async()=>({field:"telemetry.powerKw",unit:"kW",generation_id:"g1",points:[
+    {time:1,value:36,trip_id:"a",sample_index:10,quality:"estimated",source:"derived_battery_energy",reported_value:0,reported_source:"vehicle_sensor"}],next_cursor:null});
+  recovered.loadedQuery={field:"telemetry.powerKw"};
+  await recovered.exportCSV();
+  const csv=await csvBlob.text();
+  assert.match(csv,/quality,source,reported_value_json,reported_source/);
+  assert.match(csv,/"estimated","derived_battery_energy","0","vehicle_sensor"/);
   changing.call=async(type,query)=>({field:query.field,generation_id:"same-id",generation_revision:query.cursor?"new-dataset":"old-dataset",points:[{value:1}],next_cursor:query.cursor?null:{page:2}});
   await changing.loadPoints();
   assert.equal(changing.samples[0].value,"previous-complete-selection");

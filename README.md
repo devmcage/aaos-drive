@@ -9,9 +9,9 @@ More details can be found at: https://mcagesoft.nl
 
 User documentation: [Detailed installation guide](docs/INSTALLATION.md) and [Complete attribute and data reference](docs/ATTRIBUTES.md).
 
-Version **0.4.6** supports Drive sync **V3**, TripLog day format **1**, trip schema **17**, and Home Assistant **2026.9 or later**. Fuel/hybrid readings require an export containing the optional powertrain extension; existing electric exports remain supported. The integration and trip dashboard use the [official AAOS Logging artwork](icon/README.md).
+Version **0.4.7** supports Drive sync **V3**, TripLog day format **1**, trip schema **17**, and Home Assistant **2026.9 or later**. Fuel/hybrid readings require an export containing the optional powertrain extension; existing electric exports remain supported. The integration and trip dashboard use the [official AAOS Logging artwork](icon/README.md).
 
-Version 0.4.6 supports the AAOS Logging 1.00.6 fuel/hybrid extension: fuel remaining, tank capacity, fuel economy, low-fuel and fuel-door states, vehicle identification, and the app’s per-trip moving-fuel, coverage and engine-observation metrics. Battery electricity and fuel stay separate. The integration retains the official white-car and green-route logo.
+Version 0.4.7 adds the battery-energy reliability checks used by the car and Companion apps. It can recover eligible older zero-power recordings from reliable battery Wh readings, labels estimates, and excludes unavailable consumption from averages. Valid measured EV data and fuel/hybrid metrics remain unchanged. Cached history is upgraded locally once, without redownloading recordings. See [battery energy reliability](docs/BATTERY_ENERGY.md) for qualification, provenance and limitations.
 
 The integration follows a combined history published in the same configured Drive folder when the logger explicitly identifies the original dataset as merged. It validates the complete history and preserves previously imported trips, existing entity IDs and the selected folder. Charts automatically load all pages for the selected period.
 
@@ -65,7 +65,7 @@ HACS installs and updates the integration files. Each user still configures thei
 
 ### Manual installation
 
-1. Download `aaos-drive-0.4.6.zip` from the [GitHub release](https://github.com/devmcage/aaos-drive/releases/latest) and unzip it.
+1. Download `aaos-drive-0.4.7.zip` from the [GitHub release](https://github.com/devmcage/aaos-drive/releases/latest) and unzip it.
 2. Copy the **whole `custom_components/aaos_drive` folder** into `/config/custom_components/aaos_drive`, replacing the earlier version when upgrading.
 3. Restart Home Assistant.
 4. Complete a Google Drive sync in AAOS Logging. In Drive, copy the URL of `AAOSLogging/<car-name>_<vehicle-id>`, the vehicle folder containing `Sync` and `Backup`.
@@ -73,7 +73,7 @@ HACS installs and updates the integration files. Each user still configures thei
 6. Allow the first full history import to finish. Large datasets need more time and local disk space.
 7. Open **AAOS history** in the sidebar. Each vehicle dataset can be configured separately.
 
-Existing installations keep their configuration, imported history and measured-sensor unique IDs. Restarting after upgrading automatically removes the integration's obsolete month/trip/dataset/specification sensor entries from the entity registry. Dashboards referencing those removed summaries need updating. Sensor names use **Telemetry**, **Route** and **Weather**; custom names on retained entities are preserved. Update an existing dashboard resource URL to `/aaos_drive/history.js?v=0.4.6` and refresh the browser.
+Existing installations keep their configuration, imported history and measured-sensor unique IDs. Restarting after upgrading automatically removes the integration's obsolete month/trip/dataset/specification sensor entries from the entity registry. Dashboards referencing those removed summaries need updating. Sensor names use **Telemetry**, **Route** and **Weather**; custom names on retained entities are preserved. Update an existing dashboard resource URL to `/aaos_drive/history.js?v=0.4.7` and refresh the browser.
 
 Upgrading to 0.4.1 applies the empty-sensor visibility default once to existing AAOS measurement entities, using all locally imported history even when Drive has not changed. Existing user-hidden entities are left hidden. Later manual show/hide choices are preserved across refreshes and restarts. Buttons, diagnostic entities and the position tracker are unaffected.
 

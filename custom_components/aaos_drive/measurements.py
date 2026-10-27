@@ -2,6 +2,7 @@
 
 import re
 from .const import BINARY_FIELDS, FUEL_USAGE_MEASUREMENTS
+from .energy import QUALITY_FIELDS
 
 TIMESTAMPS = {"recordedAt", "startedAt", "endedAt", "capturedAt", "generatedAt", "firstTripAt", "lastTripAt", "lastChecked"}
 
@@ -9,7 +10,7 @@ TIMESTAMPS = {"recordedAt", "startedAt", "endedAt", "capturedAt", "generatedAt",
 def car_sensor(key):
     """Measured fields have stable entities; timestamps and summaries are attributes/data."""
     group, _, field = key.partition(".")
-    return group in {"telemetry", "weather", "route"} and field not in TIMESTAMPS and field not in {"powerSource", "powerSignalDirection", "vehicleType", "vehicleTypeSource"}
+    return group in {"telemetry", "weather", "route"} and field not in TIMESTAMPS and field not in QUALITY_FIELDS and field not in {"powerSource", "powerSignalDirection", "vehicleType", "vehicleTypeSource"}
 
 
 def dashboard_field(key):

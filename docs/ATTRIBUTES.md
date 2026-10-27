@@ -1,6 +1,6 @@
 # AAOS Logging Drive — attributes and data reference
 
-This document explains the data available in integration **0.4.6**, using AAOS Logging's Drive sync **V3** and trip schema **17**. It covers all **76 telemetry fields**, route/weather fields, trip measurements, vehicle specifications, export metadata and integration-added entity attributes. Installation and dashboard setup are described in [INSTALLATION.md](INSTALLATION.md).
+This document explains the data available in integration **0.4.7**, using AAOS Logging's Drive sync **V3** and trip schema **17**. It covers all **76 telemetry fields**, route/weather fields, trip measurements, vehicle specifications, export metadata and integration-added entity attributes. Installation and dashboard setup are described in [INSTALLATION.md](INSTALLATION.md).
 
 The names below are the exact source/history keys. Home Assistant displays readable names, such as **Telemetry battery percent**, and assigns entity IDs that may vary between installations. Use the entity's `history_field` attribute to find its source key.
 
@@ -39,7 +39,7 @@ Raw original records remain in the local AAOS database independently of Recorder
 - `null` means no reading was exported at that timestamp. Unsupported vehicle properties, permission limitations and temporarily unavailable readings can all produce nulls.
 - Home Assistant `unknown` corresponds to a missing/unusable current reading. The integration does not carry an older value forward to fill it.
 - `unavailable` means the current refresh/entity is unavailable. A failed Drive refresh does not discard previously imported history.
-- Numeric `0` and boolean `false` are valid recorded values. They are not missing data.
+- Numeric `0` and boolean `false` are valid recorded values. Battery power has a conservative reliability check: an all-zero moving signal contradicted by changing battery Wh is recovered or marked unavailable; true zero remains zero. See [battery energy reliability](BATTERY_ENERGY.md).
 - An enum code such as `0` can have a named enum meaning of Unknown while still being an actual recorded code. It is different from a missing Home Assistant state.
 - A field with no usable readings anywhere in the first full import defaults to hidden. Its entity remains enabled and its raw samples remain accessible. A later valid reading can automatically show it. Once visible, a temporarily missing latest reading does not hide it again; manual visibility choices are preserved after the initial default.
 
@@ -599,3 +599,36 @@ The selected primary-field export has columns `recorded_at_utc`, `recorded_at_un
 | Stale diagnostic on after a successful refresh | The last car recording is old, even though Home Assistant successfully checked Drive. |
 
 The source contract can gain new keys in later exports. The importer retains original scalar fields and full trip records rather than silently dropping them. Discover additional paths through `get_history_fields` and the original `get_trip`/`get_catalog` results; this reference describes the fields defined for the versions stated at the top.
+
+
+## Battery review metadata (0.4.7)
+
+The complete-trip action always returns the original export. Reviewed trip
+summaries, entities, charts and statistics use reliable energy and power views.
+All timestamps and unrelated measurements stay unchanged.
+
+| Field | Meaning |
+| --- | --- |
+| `trip.energyQuality` | `measured`, `estimated`, `recovered` locally from battery Wh, or `unavailable`. |
+| `trip.energyReviewVersion` | Local review algorithm version; not the car export schema version. |
+| `trip.energyDescription` | Human-readable source and estimate limitations. |
+| `trip.reportedEnergyKwh` | Original energy slot, including a suspect zero. Diagnostic metadata, not averaged. |
+| `trip.reportedEnergySource` | Original exported source, before local review. |
+| `telemetry.powerQuality` | Effective repaired power is `estimated` or `unavailable`. Diagnostic metadata. |
+| `telemetry.reportedPowerKw` | Original power at a locally repaired timestamp. No sensor or statistics are created. |
+| `telemetry.reportedPowerSource` | Original source at a locally repaired timestamp. |
+
+`telemetry.powerKw` and `trip.energyKwh` history points include `quality` and
+`source`; repaired power points additionally include `reported_value` and
+`reported_source`. The CSV has corresponding provenance columns. Power entity
+attributes include `power_quality`, `energy_description` and, when repaired,
+`reported_power_kw` / `reported_power_source`. A null effective power may be the
+10-second estimation warm-up, not an actual zero.
+
+Current dataset/month snapshot values add `energyRecordedTripCount`,
+`energyEstimatedTripCount` and `energyUnavailableTripCount`. When locally
+reviewed consumption is incomplete, `energyKwh` is null; `knownEnergyKwh`,
+`energyCoveredDistanceKm` and `efficiencyKwhPer100Km` describe only usable trips.
+Original catalog/index actions and their historical metadata series retain the
+exported totals; reviewed trip summaries are the source for recovered reporting.
+See [BATTERY_ENERGY.md](BATTERY_ENERGY.md) for the algorithm and local upgrade.

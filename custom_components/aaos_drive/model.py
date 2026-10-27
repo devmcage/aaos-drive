@@ -204,12 +204,13 @@ def flatten(value: dict, prefix: str = "") -> dict:
     return out
 
 
-def trip_summary(trip: dict) -> dict:
+def trip_summary(trip: dict, review=None) -> dict:
+    from .energy import REVIEW_VERSION, energy_description, review_energy
+    review = review if review is not None else review_energy(trip)
     out = {k: v for k, v in trip.items() if k not in {"telemetry", "route", "weatherSamples", "weather"}}
-    # Fuel/hybrid exports retain a legacy numeric energy slot even when no
-    # battery energy was measured. The original record remains unchanged.
-    if trip.get("vehicleType") in {"FUEL", "HYBRID"} and trip.get("energySource") in {None, "unknown"}:
-        out["energyKwh"] = None
+    out.update(energyKwh=review.energy, energySource=review.source, energyQuality=review.quality,
+               energyReviewVersion=REVIEW_VERSION, energyDescription=energy_description(review.quality),
+               reportedEnergyKwh=trip.get("energyKwh"), reportedEnergySource=trip.get("energySource"))
     start, end = trip.get("startedAt"), trip.get("endedAt")
     out["durationSeconds"] = (end - start) / 1000 if integer(start) and integer(end) and end >= start else None
     distance, energy = trip.get("distanceKm"), out.get("energyKwh")
@@ -234,9 +235,18 @@ class Snapshot:
     artifact_files: dict = field(default_factory=dict)
     commit_folder_id: str | None = None
     previous_identity: dict | None = None
+    energy_totals: dict = field(default_factory=dict)
+
+    @cached_property
+    def energy_review(self):
+        from .energy import review_energy
+        return review_energy(self.trip) if self.trip else None
 
     @cached_property
     def telemetry(self) -> dict:
+        from .energy import effective_telemetry
+        if self.trip and self.energy_review.repair_power:
+            return max(effective_telemetry(self.trip, self.energy_review), key=lambda r: r["recordedAt"], default={})
         records = self.trip.get("telemetry", []) if self.trip else []
         return max(records, key=lambda r: r["recordedAt"]) if records else {}
 
@@ -258,7 +268,7 @@ class Snapshot:
     @cached_property
     def readings(self) -> dict:
         telemetry, weather = self.telemetry, self.weather
-        summary = trip_summary(self.trip) if self.trip else {}
+        summary = trip_summary(self.trip, self.energy_review) if self.trip else {}
         values = {f"telemetry.{k}": telemetry.get(k) for k in set(TELEMETRY_FIELDS) | telemetry.keys()}
         values.update({f"trip.{k}": summary.get(k) for k in set(TRIP_FIELDS) | summary.keys()})
         values.update({f"trip.{k}": value for k, value in flatten(summary).items()})
@@ -280,4 +290,7 @@ class Snapshot:
             "dataset.tripSchemaVersion": self.manifest.raw["tripSchemaVersion"],
             "dataset.lastChecked": self.checked_at,
         })
+        # These are locally reviewed totals. catalog/index action responses and
+        # the original trip document continue to expose the unmodified export.
+        values.update(self.energy_totals)
         return values

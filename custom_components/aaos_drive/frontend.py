@@ -142,4 +142,4 @@ async def async_setup_frontend(hass):
     ])
     await async_register_panel(hass, frontend_url_path="aaos-history", webcomponent_name="aaos-history-panel",
         sidebar_title="AAOS history", sidebar_icon="mdi:chart-timeline-variant",
-        module_url="/aaos_drive/history.js?v=0.4.6", embed_iframe=False, require_admin=True)
+        module_url="/aaos_drive/history.js?v=0.4.7", embed_iframe=False, require_admin=True)

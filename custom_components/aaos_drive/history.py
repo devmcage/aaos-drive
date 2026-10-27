@@ -14,6 +14,7 @@ import sqlite3
 from .const import BINARY_FIELDS, HISTORY_PROCESSING_VERSION, TELEMETRY_FIELDS, TRIP_FIELDS, WEATHER_FIELDS
 from .measurements import car_sensor, series_info
 from .model import InvalidExport, flatten, integer, trip_summary
+from .energy import EnergyReview, QUALITY_FIELDS, effective_telemetry, review_energy
 
 ARRAYS = {"telemetry": "telemetry", "route": "route", "weatherSamples": "weather"}
 KNOWN = {"telemetry": TELEMETRY_FIELDS, "weather": WEATHER_FIELDS,
@@ -55,21 +56,40 @@ class HistoryStore:
                     kind TEXT, position INTEGER, at INTEGER, data TEXT);
                 CREATE INDEX IF NOT EXISTS records_time ON records(kind,at,id);
                 CREATE INDEX IF NOT EXISTS records_sha ON records(sha);
+                CREATE INDEX IF NOT EXISTS records_trip ON records(sha,trip_id,kind,position);
+                CREATE TABLE IF NOT EXISTS trip_summaries(sha TEXT, trip_id TEXT, started INTEGER, ended INTEGER, data TEXT,
+                    PRIMARY KEY(sha,trip_id));
                 CREATE TABLE IF NOT EXISTS fields(sha TEXT, field TEXT, PRIMARY KEY(sha,field));
                 CREATE TABLE IF NOT EXISTS statistics(field TEXT PRIMARY KEY, data TEXT);
                 PRAGMA user_version=1;
             """)
             if self.meta(db, "processing_version") != HISTORY_PROCESSING_VERSION:
-                # Refresh only derived summary rows, locally and atomically.
-                # Original trips and telemetry never need a Drive redownload.
+                # Rebuild derived views once, locally and atomically, one trip
+                # at a time. Original exports never need a Drive redownload.
                 for record_id, sha, original in db.execute("""SELECT r.id,r.sha,t.data FROM records r
                         JOIN trips t ON t.sha=r.sha AND t.trip_id=r.trip_id WHERE r.kind='trip'"""):
+                    trip = json.loads(original)
+                    review = review_energy(trip)
+                    summary = trip_summary(trip, review)
+                    self.save_summary(db, sha, trip, summary)
                     values = {key: None for key in TRIP_FIELDS}
-                    values.update(flatten(trip_summary(json.loads(original))))
+                    values.update(flatten(summary))
                     db.execute("UPDATE records SET data=? WHERE id=?", (encoded(values), record_id))
                     db.executemany("INSERT OR IGNORE INTO fields VALUES (?,?)", ((sha, f"trip.{key}") for key in values))
+                    if review.repair_power:
+                        discovered = set()
+                        for position, sample in enumerate(effective_telemetry(trip, review)):
+                            data = {key: None for key in TELEMETRY_FIELDS}
+                            data.update(flatten(sample))
+                            db.execute("UPDATE records SET data=? WHERE sha=? AND trip_id=? AND kind='telemetry' AND position=?",
+                                       (encoded(data), sha, trip['tripId'], position))
+                            discovered.update(f"telemetry.{key}" for key in data)
+                        db.executemany("INSERT OR IGNORE INTO fields VALUES (?,?)", ((sha, key) for key in discovered))
                 self.put(db, "processing_version", HISTORY_PROCESSING_VERSION)
                 if self.meta(db, "generation_id") is not None:
+                    revision = str(self.meta(db, "generation_revision", "")).split(":processing:")[0]
+                    self.put(db, "generation_revision", f"{revision}:processing:{HISTORY_PROCESSING_VERSION}")
+                    self.put(db, "energy_totals", self.energy_totals(db))
                     self.put(db, "statistics_pending", True)
 
     @staticmethod
@@ -92,6 +112,71 @@ class HistoryStore:
             return db.execute("SELECT 1 FROM artifacts WHERE sha=?", (sha,)).fetchone() is not None
 
     @staticmethod
+    def save_summary(db, sha, trip, summary):
+        db.execute("INSERT OR REPLACE INTO trip_summaries VALUES (?,?,?,?,?)",
+                   (sha, trip['tripId'], trip['startedAt'], trip.get('endedAt') or trip['startedAt'], encoded(summary)))
+
+    def energy_totals(self, db):
+        """Covered energy/distance share the same trips; unknown is not zero."""
+        from zoneinfo import ZoneInfo
+        from .model import timestamp
+        manifest = self.meta(db, "manifest", {})
+        zone = ZoneInfo(manifest.get("timeZone", "UTC"))
+        groups = {}
+        for (data,) in db.execute("SELECT data FROM trip_summaries WHERE sha IN (SELECT sha FROM active) ORDER BY started,trip_id"):
+            trip = json.loads(data)
+            month = timestamp(trip['startedAt']).astimezone(zone).strftime('%Y-%m')
+            for prefix in ('dataset', f'month.{month}'):
+                totals = groups.setdefault(prefix, dict(count=0, usable=0, estimated=0, affected=False, energy=0, distance=0))
+                totals['count'] += 1
+                quality = trip['energyQuality']
+                totals['affected'] |= quality in {'recovered', 'unavailable'}
+                if quality != 'unavailable':
+                    totals['usable'] += 1
+                    totals['estimated'] += quality in {'recovered', 'estimated'}
+                    totals['energy'] += trip['energyKwh']
+                    totals['distance'] += trip.get('distanceKm') or 0
+        values = {}
+        for prefix, totals in groups.items():
+            values.update({f'{prefix}.energyRecordedTripCount': totals['usable'],
+                           f'{prefix}.energyUnavailableTripCount': totals['count'] - totals['usable'],
+                           f'{prefix}.energyEstimatedTripCount': totals['estimated']})
+            # Keep the existing exact catalog totals for unaffected cars.
+            if totals['affected']:
+                energy = totals['energy'] if totals['usable'] else None
+                distance = totals['distance']
+                values.update({f'{prefix}.energyKwh': energy if totals['usable'] == totals['count'] else None,
+                               f'{prefix}.knownEnergyKwh': energy, f'{prefix}.energyCoveredDistanceKm': distance,
+                               f'{prefix}.efficiencyKwhPer100Km': energy / distance * 100 if energy is not None and distance > 0 else None})
+        return values
+
+    def attach(self, snapshot):
+        """Use persisted reviews even when the Drive generation is unchanged."""
+        with self.connect() as db:
+            snapshot.energy_totals = self.meta(db, 'energy_totals', {})
+            for key in ('telemetry', 'readings'):
+                snapshot.__dict__.pop(key, None)
+            if snapshot.trip:
+                row = db.execute("SELECT data FROM trip_summaries WHERE sha IN (SELECT sha FROM active) AND trip_id=?",
+                                 (snapshot.trip['tripId'],)).fetchone()
+                if row:
+                    summary = json.loads(row[0])
+                    snapshot.__dict__['energy_review'] = EnergyReview(summary['energyKwh'], summary.get('energySource'),
+                        summary['energyQuality'], summary['energyQuality'] in {'recovered', 'unavailable'} and summary.get('vehicleType') != 'FUEL')
+                    # Use the already processed sample, rather than replaying a
+                    # whole rolling window when an entity reads its current value.
+                    samples = snapshot.trip.get('telemetry', [])
+                    if samples:
+                        position, point = max(enumerate(samples), key=lambda pair: pair[1]['recordedAt'])
+                        if snapshot.energy_review.repair_power:
+                            record = db.execute("SELECT data FROM records WHERE sha IN (SELECT sha FROM active) AND trip_id=? AND kind='telemetry' AND position=?",
+                                                (snapshot.trip['tripId'], position)).fetchone()
+                            if record:
+                                stored = json.loads(record[0])
+                                point = {**point, **{key: stored[key] for key in QUALITY_FIELDS | {'powerKw', 'powerSource'} if key in stored}}
+                        snapshot.__dict__['telemetry'] = point
+
+    @staticmethod
     def record(db, sha, trip_id, kind, position, at, value, discovered=None):
         data = {key: None for key in KNOWN.get(kind, ())}
         data.update(flatten(value))
@@ -110,13 +195,17 @@ class HistoryStore:
             discovered = set()
             for trip in trips:
                 trip_id = trip["tripId"]
+                review = review_energy(trip)
+                summary = trip_summary(trip, review)
+                self.save_summary(db, artifact.sha256, trip, summary)
                 # Keep a complete original record for exact get_trip responses.
                 db.execute("INSERT INTO trips VALUES (?,?,?,?,?)", (artifact.sha256, trip_id,
                            trip["startedAt"], trip.get("endedAt") or trip["startedAt"], encoded(trip)))
                 self.record(db, artifact.sha256, trip_id, "trip", 0,
-                            trip.get("endedAt") or trip["startedAt"], trip_summary(trip), discovered)
+                            trip.get("endedAt") or trip["startedAt"], summary, discovered)
                 for array, kind in ARRAYS.items():
-                    for position, sample in enumerate(trip.get(array, [])):
+                    samples = effective_telemetry(trip, review) if kind == 'telemetry' else trip.get(array, [])
+                    for position, sample in enumerate(samples):
                         at = sample["capturedAt" if kind == "weather" else "recordedAt"]
                         self.record(db, artifact.sha256, trip_id, kind, position, at, sample, discovered)
                 if not trip.get("weatherSamples") and isinstance(trip.get("weather"), dict):
@@ -156,7 +245,7 @@ class HistoryStore:
             if (latest[0] if latest else None) != manifest["latestTripEndTimestamp"]:
                 raise InvalidExport("Complete history does not match the committed latest trip")
             snapshot.trip = json.loads(latest[1]) if latest else None
-            for key in ("telemetry", "weather", "route", "readings"):
+            for key in ("energy_review", "telemetry", "weather", "route", "readings"):
                 snapshot.__dict__.pop(key, None)
             sha = "snapshot:" + manifest["datasetId"] + ":" + manifest["generationId"]
             if not db.execute("SELECT 1 FROM snapshots WHERE sha=?", (sha,)).fetchone():
@@ -170,10 +259,11 @@ class HistoryStore:
                     self.record(db, sha, None, "index", position, at, {key: index})
                 db.execute("INSERT INTO snapshots VALUES (?)", (sha,))
             for key, value in (("identity", identity), ("generation_id", manifest["generationId"]),
-                               ("generation_revision", snapshot.manifest_hash), ("manifest", manifest), ("catalog", snapshot.catalog), ("statistics_pending", True)):
+                               ("generation_revision", f"{snapshot.manifest_hash or ''}:processing:{HISTORY_PROCESSING_VERSION}"), ("manifest", manifest), ("catalog", snapshot.catalog), ("statistics_pending", True)):
                 self.put(db, key, value)
+            self.put(db, 'energy_totals', self.energy_totals(db))
             # Remove superseded detailed archives only after the complete replacement exists.
-            for table in ("trips", "records", "fields", "artifacts"):
+            for table in ("trips", "trip_summaries", "records", "fields", "artifacts"):
                 db.execute(f"DELETE FROM {table} WHERE sha NOT IN (SELECT sha FROM active) AND sha NOT IN (SELECT sha FROM snapshots)")
 
     def overview(self):
@@ -214,8 +304,21 @@ class HistoryStore:
                 cursor["at"] if cursor else -1, cursor["at"] if cursor else -1, cursor["id"] if cursor else 0, limit+1)).fetchall()
             page = rows[:limit]
             next_cursor = {"generation_id": generation, "generation_revision": revision, "query": query, "at": page[-1][1], "id": page[-1][0]} if len(rows) > limit else None
+            points = []
+            for r in page:
+                data = json.loads(r[4])
+                point = {"time": r[1], "trip_id": r[2], "sample_index": r[3], "value": data[key]}
+                if field == 'telemetry.powerKw':
+                    source = data.get('powerSource')
+                    point.update(source=source, quality=data.get('powerQuality') or
+                        ('unavailable' if data[key] is None else 'estimated' if source in {'derived_battery_energy', 'mixed_vehicle_sensor_and_derived'} else 'measured'))
+                    if 'reportedPowerKw' in data:
+                        point.update(reported_value=data['reportedPowerKw'], reported_source=data.get('reportedPowerSource'))
+                elif field in {'trip.energyKwh', 'trip.efficiencyKwhPer100Km'}:
+                    point.update(source=data.get('energySource'), quality=data.get('energyQuality'))
+                points.append(point)
             return {**series_info(field), "generation_id": generation, "generation_revision": revision, "trip_id": trip_id,
-                    "points": [{"time": r[1], "trip_id": r[2], "sample_index": r[3], "value": json.loads(r[4])[key]} for r in page],
+                    "points": points,
                     "next_cursor": next_cursor}
 
     def trip_index(self, start=None, end=None, limit=200, cursor=None):
@@ -235,8 +338,8 @@ class HistoryStore:
                 raise InvalidExport("History changed or trip cursor is invalid; restart the query")
             where = "sha IN (SELECT sha FROM active) AND ended>=? AND started<=?"
             bounds = (start or 0, end if end is not None else 2**63-1)
-            total = db.execute(f"SELECT COUNT(*) FROM trips WHERE {where}", bounds).fetchone()[0]
-            rows = db.execute(f"SELECT started,trip_id,data FROM trips WHERE {where} AND (started<? OR (started=? AND trip_id<?)) ORDER BY started DESC,trip_id DESC LIMIT ?",
+            total = db.execute(f"SELECT COUNT(*) FROM trip_summaries WHERE {where}", bounds).fetchone()[0]
+            rows = db.execute(f"SELECT started,trip_id,data FROM trip_summaries WHERE {where} AND (started<? OR (started=? AND trip_id<?)) ORDER BY started DESC,trip_id DESC LIMIT ?",
                               (*bounds, cursor["started"] if cursor else 2**63-1, cursor["started"] if cursor else 2**63-1,
                                cursor["trip_id"] if cursor else "", limit+1)).fetchall()
             page = rows[:limit]
@@ -244,11 +347,12 @@ class HistoryStore:
             for started, trip_id, data in page:
                 trip = json.loads(data)
                 span = db.execute("SELECT MIN(at),MAX(at) FROM records WHERE sha IN (SELECT sha FROM active) AND trip_id=?", (trip_id,)).fetchone()
-                summary = trip_summary(trip)
+                summary = trip
                 choices.append({"trip_id": trip_id, "started_at": started, "ended_at": trip.get("endedAt") or started,
                                 "sample_start": min(started, span[0] or started), "sample_end": max(trip.get("endedAt") or started, span[1] or started),
                                 "distance_km": trip.get("distanceKm"), "energy_kwh": summary.get("energyKwh"),
-                                "energy_source": trip.get("energySource"), "vehicle_type": trip.get("vehicleType"),
+                                "energy_source": summary.get("energySource"), "energy_quality": summary.get("energyQuality"),
+                                "energy_description": summary.get("energyDescription"), "vehicle_type": trip.get("vehicleType"),
                                 "vehicle_type_source": trip.get("vehicleTypeSource"), "fuel_usage": summary.get("fuelUsage"),
                                 "duration_seconds": summary["durationSeconds"], "telemetry_count": summary["telemetryCount"],
                                 "route_count": summary["routePointCount"], "weather_count": summary["weatherSampleCount"]})
@@ -270,10 +374,10 @@ class HistoryStore:
         with self.connect() as db:
             zone = ZoneInfo(self.meta(db, "manifest")["timeZone"])
             result = []
-            for (data,) in db.execute("SELECT data FROM trips WHERE sha IN (SELECT sha FROM active) ORDER BY started,trip_id"):
+            for (data,) in db.execute("SELECT data FROM trip_summaries WHERE sha IN (SELECT sha FROM active) ORDER BY started,trip_id"):
                 trip = json.loads(data)
                 if not period or timestamp(trip["startedAt"]).astimezone(zone).date().isoformat().startswith(period):
-                    result.append(trip_summary(trip))
+                    result.append(trip)
             return result
 
     def fields_with_data(self):
@@ -312,7 +416,7 @@ class HistoryStore:
             for kind, key, at, mean, minimum, maximum in rows:
                 field = f"{kind}.{key}"
                 info = series_info(field)
-                if info["timestamp_value"] or info["statistic_unit"] is None:
+                if key in QUALITY_FIELDS or key.startswith('reportedEnergy') or info["timestamp_value"] or info["statistic_unit"] is None:
                     continue
                 factor = info["statistic_factor"]
                 result.setdefault(field, []).append({"time": at, "mean": mean*factor, "min": minimum*factor, "max": maximum*factor})
@@ -337,6 +441,7 @@ async def sync_history(store, repository, snapshot, executor):
     state = await executor(store.state)
     identity = {key: snapshot.manifest.raw[key] for key in ("datasetId", "vehicleId")}
     if state["generation_id"] == snapshot.manifest.raw["generationId"] and state["identity"] == identity:
+        await executor(store.attach, snapshot)
         return
     for artifact in snapshot.manifest.artifacts:
         if artifact.kind not in {"day_archive", "month_archive"} or await executor(store.has_artifact, artifact.sha256):
@@ -349,6 +454,7 @@ async def sync_history(store, repository, snapshot, executor):
             indexes[artifact.key] = await repository.index(snapshot, artifact.key)
     await repository.ensure_current(snapshot)
     await executor(store.complete, snapshot, indexes)
+    await executor(store.attach, snapshot)
 
 
 def statistic_id(entry_id, field):

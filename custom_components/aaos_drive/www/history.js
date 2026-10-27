@@ -32,7 +32,7 @@ class AAOSHistory extends HTMLElement {
   build(){
     this.built=true;
     this.shadowRoot.innerHTML=`<style>${STYLE}</style><main>
-      <header class="brand-header"><img class="brand-icon" src="/aaos_drive/icon.png?v=0.4.6" width="56" height="56" alt="AAOS Logging"><div><h1>AAOS trip dashboard</h1><p>Choose a trip or date range to chart each recorded car sensor at its original timestamp.</p></div></header>
+      <header class="brand-header"><img class="brand-icon" src="/aaos_drive/icon.png?v=0.4.7" width="56" height="56" alt="AAOS Logging"><div><h1>AAOS trip dashboard</h1><p>Choose a trip or date range to chart each recorded car sensor at its original timestamp.</p></div></header>
       <div class="controls"><label>Vehicle<select id="vehicle"></select></label>
       <label>Trip<select id="trip"><option value="">All trips in the period</option></select></label><button id="older" hidden>Load older trips</button>
       <label class="field">Find a sensor or measurement<input id="search" type="search" placeholder="Speed, battery, brakes, weather…"><select id="field"></select></label>
@@ -191,7 +191,8 @@ class AAOSHistory extends HTMLElement {
     const fuel=t.vehicle_type==="FUEL"||t.vehicle_type==="HYBRID";
     const parts=[`${new Date(t.started_at).toLocaleString()} — ${new Date(t.ended_at).toLocaleTimeString()}`,`${t.telemetry_count.toLocaleString()} telemetry samples`,`${t.route_count.toLocaleString()} route points`];
     if(t.vehicle_type)parts.push(t.vehicle_type);
-    if(t.energy_kwh!==null&&t.energy_kwh!==undefined)parts.push(`${number(t.energy_kwh)} kWh${fuel?" battery net energy only":""}`);
+    if(t.energy_kwh!==null&&t.energy_kwh!==undefined)parts.push(`${number(t.energy_kwh)} kWh${fuel?" battery net energy only":""}${["estimated","recovered"].includes(t.energy_quality)?" · Estimated from battery energy":""}`);
+    else if(t.energy_quality==="unavailable"&&t.vehicle_type!=="FUEL")parts.push("Battery consumption unavailable; excluded from consumption averages");
     if(fuel){
       const usage=t.fuel_usage||{};
       parts.push(`Moving fuel estimate: ${number(usage.movingFuelLiters)} L`,`${number(usage.movingConsumptionLitersPer100Km)} L/100 km`,
@@ -296,7 +297,7 @@ class AAOSHistory extends HTMLElement {
     const categoryIndex=new Map(categories.map((v,i)=>[v,i]));
     const number=p=>numeric?p.value:categoryIndex.get(stringValue(p.value));
     const add=(tag,attrs,text)=>{const e=document.createElementNS("http://www.w3.org/2000/svg",tag);for(const [k,v]of Object.entries(attrs))e.setAttribute(k,String(v));if(text!==undefined)e.textContent=text;svg.append(e);return e;};
-    if(!valid.length){add("text",{x:70,y:145,class:"axis"},"No non-null values in this selection");note.textContent="Unknown samples remain in the table and CSV.";return;}
+    if(!valid.length){add("text",{x:70,y:145,class:"axis"},"No usable values in this selection");note.textContent=rows.some(p=>p.quality==="unavailable")?"Insufficient reliable energy readings. Consumption and power remain unavailable, not zero; original reported values are retained in the CSV and complete trip record.":"Unknown samples remain in the table and CSV.";return;}
     let low=Infinity,high=-Infinity;
     for(const p of valid){const n=number(p);low=Math.min(low,n);high=Math.max(high,n);}
     if(low===high){low-=numeric?1:.5;high+=numeric?1:.5;}
@@ -322,13 +323,17 @@ class AAOSHistory extends HTMLElement {
     const dateLabel=ms=>span>=86400000?new Date(ms).toLocaleDateString():new Date(ms).toLocaleTimeString();
     add("text",{x:80,y:290,class:"axis"},dateLabel(first));
     add("text",{x:right,y:290,class:"axis","text-anchor":"end"},dateLabel(last));
-    note.textContent=(data.field.startsWith("trip.fuelUsage.")?"Per-trip summaries at recorded trip ends; moving fuel estimates exclude stationary use and missing intervals. Engine-off moving includes coasting.":numeric?"Original samples; gaps and separate trips remain separate.":"Recorded states and codes; Unknown remains unknown.")+` ${rows.length.toLocaleString()} samples.`;
+    const estimated=rows.some(p=>["estimated","recovered"].includes(p.quality));
+    const unavailable=rows.some(p=>p.quality==="unavailable");
+    note.textContent=(data.field.startsWith("trip.fuelUsage.")?"Per-trip summaries at recorded trip ends; moving fuel estimates exclude stationary use and missing intervals. Engine-off moving includes coasting.":numeric?"Recorded samples; gaps and separate trips remain separate.":"Recorded states and codes; Unknown remains unknown.")+
+      (estimated?" Includes estimates from battery energy. Power is smoothed over 10–60 seconds; precise peaks and coasting cannot be inferred. Regeneration remains negative; hybrid fuel is separate.":"")+
+      (unavailable?" Unreliable or missing readings remain unavailable, not zero.":"")+` ${rows.length.toLocaleString()} samples.`;
   }
   async exportCSV(){
     const query={...this.loadedQuery},serial=++this.request;
     this.exporting=true;
     this.$("csv").disabled=true;this.$("more").disabled=true;
-    const lines=["recorded_at_utc,recorded_at_unix_ms,field,value_json,unit,trip_id,sample_index"];
+    const lines=["recorded_at_utc,recorded_at_unix_ms,field,value_json,unit,trip_id,sample_index,quality,source,reported_value_json,reported_source"];
     let cursor, generation=null;
     try{
       do{
@@ -336,7 +341,7 @@ class AAOSHistory extends HTMLElement {
         if(serial!==this.request)return;
         if(generation!==null&&generation!==page.generation_id)throw new Error("History changed during export. Try again.");
         generation=page.generation_id;
-        for(const p of page.points)lines.push([new Date(p.time).toISOString(),p.time,page.field,JSON.stringify(p.value),page.unit||"",p.trip_id||"",p.sample_index].map(csvValue).join(","));
+        for(const p of page.points)lines.push([new Date(p.time).toISOString(),p.time,page.field,JSON.stringify(p.value),page.unit||"",p.trip_id||"",p.sample_index,p.quality||"",p.source||"",p.reported_value===undefined?"":JSON.stringify(p.reported_value),p.reported_source||""].map(csvValue).join(","));
         cursor=page.next_cursor;this.status(`Preparing CSV: ${(lines.length-1).toLocaleString()} samples…`);
       }while(cursor);
       const url=URL.createObjectURL(new Blob([lines.join("\r\n")],{type:"text/csv;charset=utf-8"}));

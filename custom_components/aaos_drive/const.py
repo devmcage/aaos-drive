@@ -9,7 +9,7 @@ DEFAULT_SCAN_MINUTES = 15
 DEFAULT_STALE_HOURS = 24
 MAX_FILE_BYTES = 128 * 1024 * 1024
 MAX_ZIP_BYTES = 512 * 1024 * 1024
-HISTORY_PROCESSING_VERSION = 2
+HISTORY_PROCESSING_VERSION = 3
 
 
 def readonly_grant(token: dict) -> bool:
@@ -60,6 +60,7 @@ TRIP_FIELDS = (
     "maxBrakingG", "maxLateralG", "startLat", "startLon", "endLat", "endLon", "routeKey",
     "durationSeconds", "efficiencyKwhPer100Km", "telemetryCount", "routePointCount",
     "weatherSampleCount",
+    "energyQuality", "energyReviewVersion", "energyDescription", "reportedEnergyKwh", "reportedEnergySource",
     "vehicleType", "vehicleTypeSource", "powertrainSchemaVersion",
     *(f"fuelUsage.{key}" for key in FUEL_USAGE_FIELDS),
 )

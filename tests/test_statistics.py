@@ -235,3 +235,47 @@ class StatisticsTests(unittest.IsolatedAsyncioTestCase):
         await self.module.sync_statistics(self.hass,self.entry,self.history)
         self.assertTrue(self.add.called)
         self.assertTrue(self.native_add.called)
+
+    async def test_local_energy_upgrade_corrects_or_removes_only_affected_statistics(self):
+        import json
+        from .test_energy import zero_power_day
+        for missing in (False, True):
+            with self.subTest(missing=missing):
+                day = zero_power_day()
+                if missing:
+                    day['trips'][0]['telemetry'][30]['batteryEnergyWh'] = None
+                self.repo.drive.publish(2 if not missing else 3, uniform=True, include_history=False, latest_day=day)
+                snapshot = await self.repo.refresh()
+                await sync_history(self.history, self.repo, snapshot, asyncio.to_thread)
+                with self.history.connect() as db:
+                    self.history.put(db, 'processing_version', 2)
+                    self.history.put(db, 'statistics_pending', True)
+                    for row_id, data in db.execute("SELECT id,data FROM records WHERE kind='telemetry'"):
+                        point = json.loads(data)
+                        point.update(powerKw=0, powerSource='vehicle_sensor')
+                        db.execute('UPDATE records SET data=? WHERE id=?', (json.dumps(point), row_id))
+                    for row_id, data in db.execute("SELECT id,data FROM records WHERE kind='trip'"):
+                        summary = json.loads(data)
+                        summary.update(energyKwh=0, efficiencyKwhPer100Km=0)
+                        db.execute('UPDATE records SET data=? WHERE id=?', (json.dumps(summary), row_id))
+                await self.module.sync_statistics(self.hass, self.entry, self.history)
+                self.assertEqual(self.history.hourly()['telemetry.powerKw'][0]['mean'], 0)
+                self.recorder.async_clear_statistics.reset_mock()
+                self.native_add.reset_mock()
+                self.add.reset_mock()
+                self.history.initialize()
+                await self.module.sync_statistics(self.hass, self.entry, self.history)
+                native = {call.args[1]['statistic_id']: call for call in self.native_add.call_args_list}
+                external = {call.args[1]['statistic_id']: call for call in self.add.call_args_list}
+                self.assertNotIn('sensor.car_speed', native)
+                if missing:
+                    cleared = {key for call in self.recorder.async_clear_statistics.call_args_list for key in call.args[0]}
+                    self.assertIn('sensor.car_power', cleared)
+                    self.assertIn(statistic_id('entry1', 'telemetry.powerKw'), cleared)
+                    self.assertIn(statistic_id('entry1', 'trip.energyKwh'), cleared)
+                    self.assertNotIn('sensor.car_speed', cleared)
+                    self.assertNotIn('sensor.car_power', native)
+                else:
+                    self.assertEqual(native['sensor.car_power'].args[2][0]['mean'], 36)
+                    self.assertEqual(external[statistic_id('entry1', 'trip.energyKwh')].args[2][0]['mean'], .6)
+                self.assertFalse(self.history.state()['statistics_pending'])

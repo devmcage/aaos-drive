@@ -105,4 +105,15 @@ class AAOSEntity(CoordinatorEntity):
             attrs["power_signal_direction"] = snapshot.telemetry.get("powerSignalDirection")
             if field in {"powerKw", "batteryEnergyWh", "batteryPercent"}:
                 attrs["energy_scope"] = "traction_battery"
+            if field == "powerKw":
+                from .energy import energy_description
+                point = snapshot.telemetry
+                source = point.get('powerSource')
+                quality = point.get('powerQuality') or ('unavailable' if point.get('powerKw') is None else
+                    'estimated' if source in {'derived_battery_energy', 'mixed_vehicle_sensor_and_derived'} else 'measured')
+                attrs['power_quality'] = quality
+                attrs['energy_description'] = energy_description(snapshot.energy_review.quality) if snapshot.energy_review else None
+                if 'reportedPowerKw' in point:
+                    attrs['reported_power_kw'] = point['reportedPowerKw']
+                    attrs['reported_power_source'] = point.get('reportedPowerSource')
         return attrs
