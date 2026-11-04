@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 import sqlite3
 
+from .battery_capacity import capacity_telemetry
 from .const import BINARY_FIELDS, HISTORY_PROCESSING_VERSION, TELEMETRY_FIELDS, TRIP_FIELDS, WEATHER_FIELDS
 from .measurements import car_sensor, series_info
 from .model import InvalidExport, flatten, integer, trip_summary
@@ -76,11 +77,11 @@ class HistoryStore:
                     values.update(flatten(summary))
                     db.execute("UPDATE records SET data=? WHERE id=?", (encoded(values), record_id))
                     db.executemany("INSERT OR IGNORE INTO fields VALUES (?,?)", ((sha, f"trip.{key}") for key in values))
-                    if review.repair_power:
+                    if trip.get("telemetry"):
                         discovered = set()
                         for position, sample in enumerate(effective_telemetry(trip, review)):
                             data = {key: None for key in TELEMETRY_FIELDS}
-                            data.update(flatten(sample))
+                            data.update(flatten(capacity_telemetry(sample)))
                             db.execute("UPDATE records SET data=? WHERE sha=? AND trip_id=? AND kind='telemetry' AND position=?",
                                        (encoded(data), sha, trip['tripId'], position))
                             discovered.update(f"telemetry.{key}" for key in data)
@@ -174,12 +175,12 @@ class HistoryStore:
                             if record:
                                 stored = json.loads(record[0])
                                 point = {**point, **{key: stored[key] for key in QUALITY_FIELDS | {'powerKw', 'powerSource'} if key in stored}}
-                        snapshot.__dict__['telemetry'] = point
+                        snapshot.__dict__['telemetry'] = capacity_telemetry(point)
 
     @staticmethod
     def record(db, sha, trip_id, kind, position, at, value, discovered=None):
         data = {key: None for key in KNOWN.get(kind, ())}
-        data.update(flatten(value))
+        data.update(flatten(capacity_telemetry(value) if kind == "telemetry" else value))
         db.execute("INSERT INTO records(sha,trip_id,kind,position,at,data) VALUES (?,?,?,?,?,?)",
                    (sha, trip_id, kind, position, at, encoded(data)))
         fields = {f"{kind}.{key}" for key in data}

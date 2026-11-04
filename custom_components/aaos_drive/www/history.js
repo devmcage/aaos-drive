@@ -327,7 +327,8 @@ class AAOSHistory extends HTMLElement {
     const unavailable=rows.some(p=>p.quality==="unavailable");
     note.textContent=(data.field.startsWith("trip.fuelUsage.")?"Per-trip summaries at recorded trip ends; moving fuel estimates exclude stationary use and missing intervals. Engine-off moving includes coasting.":numeric?"Recorded samples; gaps and separate trips remain separate.":"Recorded states and codes; Unknown remains unknown.")+
       (estimated?" Includes estimates from battery energy. Power is smoothed over 10–60 seconds; precise peaks and coasting cannot be inferred. Regeneration remains negative; hybrid fuel is separate.":"")+
-      (unavailable?" Unreliable or missing readings remain unavailable, not zero.":"")+` ${rows.length.toLocaleString()} samples.`;
+        (unavailable?" Unreliable or missing readings remain unavailable, not zero.":"")+
+        (data.description?` ${data.description}`:"")+` ${rows.length.toLocaleString()} samples.`;
   }
   async exportCSV(){
     const query={...this.loadedQuery},serial=++this.request;

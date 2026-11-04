@@ -221,7 +221,8 @@ class ParserTests(unittest.TestCase):
         source = bootstrap.ROOT.parent / "AAOS logging" / "app/src/main/kotlin/com/example/triplogger/sync/TelemetryJsonContract.kt"
         if not source.exists():
             self.skipTest("Adjacent Android logger source is not available")
-        keys = set(re.findall(r'"(\w+)"\s+to\s+point\.', source.read_text()))
+        # The wire contract includes measured fields and a paired-capacity derived value.
+        keys = set(re.findall(r'"(\w+)"\s+to\s+', source.read_text()))
         self.assertEqual(set(TELEMETRY_FIELDS), keys)
         self.assertTrue(BINARY_FIELDS.issubset(keys))
 

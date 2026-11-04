@@ -3,6 +3,7 @@
 import re
 from .const import BINARY_FIELDS, FUEL_USAGE_MEASUREMENTS
 from .energy import QUALITY_FIELDS
+from .battery_capacity import FIELDS as CAPACITY_FIELDS, NOTICE as CAPACITY_NOTICE
 
 TIMESTAMPS = {"recordedAt", "startedAt", "endedAt", "capturedAt", "generatedAt", "firstTripAt", "lastTripAt", "lastChecked"}
 
@@ -18,7 +19,10 @@ def dashboard_field(key):
 
 
 def label(key):
-    names = {"fuelLevelLiters": "Fuel remaining", "fuelCapacityLiters": "Fuel tank capacity",
+    names = {"batteryCurrentCapacityWh": "Battery current usable capacity",
+             "batteryNominalCapacityWh": "Battery nominal usable capacity",
+             "batteryCapacityRetentionPercent": "Estimated battery capacity retention",
+             "fuelLevelLiters": "Fuel remaining", "fuelCapacityLiters": "Fuel tank capacity",
              "fuelLevelLow": "Low fuel warning", "fuelDoorOpen": "Fuel door open",
              "fuelConsumptionLitersPer100Km": "Fuel consumption",
              "movingFuelLiters": "Trip moving fuel estimate", "movingConsumptionLitersPer100Km": "Trip moving fuel consumption",
@@ -88,6 +92,7 @@ def series_info(key):
     if key.startswith("vehicle.specifications.exteriorDimensionsMm."):
         unit = "mm"
     return {"field": key, "name": label(key), "unit": "ms" if factor == 0.001 else unit,
+            "description": CAPACITY_NOTICE if field in CAPACITY_FIELDS else None,
             "timestamp_value": device_class == "timestamp", "statistic_unit": unit,
             "statistic_factor": factor, "categorical": field in BINARY_FIELDS or field.endswith("State")
             or field.startswith("seatOccupancy") or field in {"currentGear", "gearSelection", "turnSignalState", "engineOilLevel", "regenerativeBrakingLevel", "evStoppingMode"}}

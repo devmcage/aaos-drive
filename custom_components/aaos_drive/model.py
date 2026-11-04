@@ -245,10 +245,11 @@ class Snapshot:
     @cached_property
     def telemetry(self) -> dict:
         from .energy import effective_telemetry
+        from .battery_capacity import capacity_telemetry
         if self.trip and self.energy_review.repair_power:
-            return max(effective_telemetry(self.trip, self.energy_review), key=lambda r: r["recordedAt"], default={})
+            return capacity_telemetry(max(effective_telemetry(self.trip, self.energy_review), key=lambda r: r["recordedAt"], default={}))
         records = self.trip.get("telemetry", []) if self.trip else []
-        return max(records, key=lambda r: r["recordedAt"]) if records else {}
+        return capacity_telemetry(max(records, key=lambda r: r["recordedAt"])) if records else {}
 
     @cached_property
     def weather(self) -> dict:

@@ -78,6 +78,14 @@ class AAOSSensor(AAOSEntity, SensorEntity):
     def extra_state_attributes(self):
         attrs = super().extra_state_attributes
         value = self.coordinator.data.values().get(self.key)
+        if self.field in {"batteryCurrentCapacityWh", "batteryNominalCapacityWh", "batteryCapacityRetentionPercent"}:
+            from .battery_capacity import NOTICE
+            point = self.coordinator.data.telemetry
+            attrs.update(capacity_description=NOTICE, capacity_source="AAOS reported usable capacities",
+                         battery_current_capacity_wh=point.get("batteryCurrentCapacityWh"),
+                         battery_nominal_capacity_wh=point.get("batteryNominalCapacityWh"),
+                         battery_temperature_c=point.get("batteryTemperatureC"),
+                         is_verified_state_of_health=False)
         if isinstance(value, (list, dict)) or isinstance(value, str) and len(value) > 255 or self.factor != 1:
             attrs["raw_value"] = value
         if self.field.endswith("State") or self.field in {"currentGear", "gearSelection", "turnSignalState", "engineOilLevel", "regenerativeBrakingLevel", "evStoppingMode"} or self.field.startswith("seatOccupancy"):
