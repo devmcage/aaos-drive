@@ -1,6 +1,6 @@
 # AAOS Logging Drive — attributes and data reference
 
-This document explains the data available in integration **0.4.7**, using AAOS Logging's Drive sync **V3** and trip schema **17**. It covers all **76 telemetry fields**, route/weather fields, trip measurements, vehicle specifications, export metadata and integration-added entity attributes. Installation and dashboard setup are described in [INSTALLATION.md](INSTALLATION.md).
+This document explains the data available in integration **0.4.8**, using AAOS Logging's Drive sync **V3** and trip schema **17**. It covers all **79 telemetry fields**, route/weather fields, trip measurements, vehicle specifications, export metadata and integration-added entity attributes. Installation and dashboard setup are described in [INSTALLATION.md](INSTALLATION.md).
 
 The names below are the exact source/history keys. Home Assistant displays readable names, such as **Telemetry battery percent**, and assigns entity IDs that may vary between installations. Use the entity's `history_field` attribute to find its source key.
 
@@ -53,7 +53,7 @@ Left/right wheel and seat labels refer to the vehicle's left/right side. Front-l
 
 ## Telemetry fields
 
-Each `telemetry.*` value belongs to an original telemetry sample. There are **61 measured sensor fields**, **10 binary sensor fields**, and **5 timestamp/source metadata fields**. Tables label raw enums as **code**; they are categorical states, not physical quantities.
+Each `telemetry.*` value belongs to an original telemetry sample. There are **64 measured sensor fields**, **10 binary sensor fields**, and **5 timestamp/source metadata fields**. Tables label raw enums as **code**; they are categorical states, not physical quantities.
 
 ### Time, speed, pedals and motion
 
@@ -92,6 +92,9 @@ The logger classifies electricity-only fuel types as electric, electricity plus 
 | `telemetry.powerSource` | Text; metadata | Origin of the power value. Codes are explained below. Exposed as the telemetry entity attribute `power_source` and retained in raw history; no separate power-source sensor is created. |
 | `telemetry.powerSignalDirection` | Text; metadata | `STANDARD` or `REVERSED`: the logger's selected vehicle power-signal direction used when normalizing direct readings. The exported `powerKw` is already normalized; do not reverse it again. Exposed as `power_signal_direction`, retained in raw history and absent/null in older exports. No separate sensor is created. |
 | `telemetry.batteryEnergyWh` | Number; Wh | Remaining traction-battery energy reported by the vehicle. Divide by 1,000 for kWh. It is not energy used since the previous trip. |
+| `telemetry.batteryCurrentCapacityWh` | Number; Wh or null | AAOS-reported current usable battery capacity, distinct from remaining battery energy and current charge. Missing, non-finite or nonpositive readings become unavailable. |
+| `telemetry.batteryNominalCapacityWh` | Number; Wh or null | AAOS-reported nominal usable capacity when new, recorded in the same sample. Static catalog capacity and older samples are not substituted. |
+| `telemetry.batteryCapacityRetentionPercent` | Number; % or null; derived | Current usable capacity divided by nominal usable capacity times 100, using finite positive values in the same sample. Recomputed from the pair rather than trusting a standalone upstream percentage. Values above 100% are retained. Temperature and battery-management estimates affect this value; it is not verified state of health or permanent degradation. See [capacity retention](BATTERY_CAPACITY_RETENTION.md). |
 | `telemetry.batteryPercent` | Number; % | Battery percentage computed by the logger from remaining energy and available capacity. Current usable capacity is preferred; nominal capacity is a fallback. The percentage source itself is not exported in this telemetry contract. |
 | `telemetry.batteryTemperatureC` | Number; °C | Battery temperature/average-temperature property when exposed to the app. Null does not imply a cold battery or a temperature fault. |
 | `telemetry.chargePortConnected` | Boolean; binary sensor | True when the vehicle reports its charging connector connected; false means a recorded disconnected state. Connected does not necessarily mean charging. |
@@ -362,6 +365,12 @@ Open an entity under **Developer tools → States** to inspect its current state
 | `source_trip_count` | On the refresh button and dashboard status, total trips declared by the accepted, verified Drive export. Compare with the local imported trip count. |
 | `generation_sequence` | Accepted export’s generation counter. It belongs to that dataset; a declared merge can adopt a different dataset’s counter. |
 | `drive_folder_url` | Link to the configured Google Drive car folder. Available on the refresh button and dashboard status; does not grant public access to that folder. |
+| `capacity_description` | On capacity/retention sensors, explains the estimate, formula, temperature effects and limitations. |
+| `capacity_source` | On capacity/retention sensors, identifies the source as AAOS reported usable capacities. |
+| `battery_current_capacity_wh` | Same-sample valid current usable capacity in Wh; null when unavailable. |
+| `battery_nominal_capacity_wh` | Same-sample valid nominal usable capacity in Wh; null when unavailable. |
+| `battery_temperature_c` | Battery temperature from that recorded sample, when available. |
+| `is_verified_state_of_health` | False on capacity/retention sensors: the capacity ratio is an estimate rather than a verified battery-health assessment. |
 | `raw_value` | Added when the displayed entity value is converted, structured or truncated: preserves its original form. It is not attached to every ordinary scalar reading. |
 | `value_encoding` | Added to many enum fields to state that they contain a raw AAOS property code with no inferred translation. See the enum interpretation section. |
 | `location_source` | Position-tracker attribute identifying its location as `last synced trip`. It is not live GPS. |
