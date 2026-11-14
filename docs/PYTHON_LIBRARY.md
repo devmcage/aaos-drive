@@ -1,6 +1,6 @@
 # Standalone library and Home Assistant wrapper
 
-The `PyPi` branch separates this project into two distributions:
+This repository contains two distributions:
 
 | Distribution | Location | Responsibility |
 | --- | --- | --- |
@@ -14,8 +14,8 @@ The wrapper imports the installed library; it does not bundle a fallback copy.
 Both distributions can live in this repository and be versioned/released separately.
 
 The integration manifest pins `aaos-logging-drive==0.1.0`. **That version must be
-published to PyPI before releasing this wrapper through HACS.** This branch is a
-development preview, not a replacement for the published stable 0.4.8 release.
+published to PyPI before releasing this wrapper through HACS.** The wrapper is a
+development preview until a corresponding GitHub/HACS release is published.
 No PyPI upload or account configuration is performed by the build commands.
 
 ## Standalone use
@@ -80,9 +80,22 @@ available; HA otherwise tries to download that exact version and setup fails.
 3. Verify the version can be installed from PyPI in a fresh environment.
 4. Ensure the wrapper manifest pins that exact version, then publish the tested wrapper through the usual GitHub/HACS release process.
 
-The upload command, when publishing has been authorized and authentication is
-configured externally, is `python -m twine upload dist/*`. Building alone does not
-publish anything. A separate source repository can be made from
+The **Publish library to PyPI** workflow, in
+`.github/workflows/publish-library.yml`, publishes the library independently of
+Home Assistant releases. Run it manually on `main`, supplying the exact version
+in the library's `pyproject.toml`. It builds and checks the wheel/source archives,
+runs the standalone and wrapper tests, uploads only the tested distributions,
+then verifies a fresh installation directly from PyPI.
+
+The PyPI Trusted Publisher must authorize this repository and the workflow
+filename `publish-library.yml`. The publishing job uses the GitHub environment
+`pypi`; a publisher with an unrestricted environment also permits it. Only the
+publishing job receives permission to obtain a short-lived publishing token.
+No PyPI password or permanent API token is configured in the repository.
+Ordinary pushes and Home Assistant releases do not trigger a PyPI upload.
+Published version numbers cannot be reused for changed distributions.
+
+Building locally alone does not publish anything. A separate source repository can be made from
 `packages/aaos-logging-drive` without changing the installed package API.
 
 ## Existing configurations and data

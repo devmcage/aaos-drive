@@ -4,17 +4,16 @@
 Logging exports in Google Drive. The import name is `aaos_logging_drive`.
 Python 3.11 or newer is required. Home Assistant is **not** a dependency.
 
-This source tree is prepared for its first PyPI release, version **0.1.0**.
-Until it is published, install from the local project or its built wheel:
-
-```sh
-python -m pip install ./packages/aaos-logging-drive
-```
-
-After publication, the same version will be installable with:
+Install version **0.1.0** from PyPI:
 
 ```sh
 python -m pip install aaos-logging-drive==0.1.0
+```
+
+For local development, install from the source project instead:
+
+```sh
+python -m pip install ./packages/aaos-logging-drive
 ```
 
 ## Read recorded trips
