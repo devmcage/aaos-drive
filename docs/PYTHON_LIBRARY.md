@@ -5,22 +5,23 @@ This repository contains two distributions:
 | Distribution | Location | Responsibility |
 | --- | --- | --- |
 | `aaos-logging-drive` 0.1.0 | `packages/aaos-logging-drive` | Google Drive reads, complete-generation validation, import/retry logic, local history, vehicle measurements, battery/fuel processing and data queries. |
-| `aaos_drive` 0.5.0a1 | `custom_components/aaos_drive` | HA OAuth linking, scheduling, config storage, devices/entities, visibility, Recorder statistics, actions, WebSocket API and dashboard. |
+| `aaos_drive` 0.5.0 | `custom_components/aaos_drive` | HA OAuth linking, scheduling, config storage, devices/entities, visibility, Recorder statistics, actions, WebSocket API and dashboard. |
 
 The library is an independently installable Python project with its own
 `pyproject.toml`, license, README, public API and standalone tests. Its wheel and
 source distribution contain no Home Assistant implementation or dependencies.
 The wrapper imports the installed library; it does not bundle a fallback copy.
-Both distributions can live in this repository and be versioned/released separately.
+Both distributions live in this repository and are versioned/released separately.
+This is the only supported Home Assistant integration architecture.
 
-The integration manifest pins `aaos-logging-drive==0.1.0`. **That version must be
-published to PyPI before releasing this wrapper through HACS.** The wrapper is a
-development preview until a corresponding GitHub/HACS release is published.
-No PyPI upload or account configuration is performed by the build commands.
+The integration manifest pins the published `aaos-logging-drive==0.1.0` package.
+Home Assistant installs it automatically when the wrapper loads. HACS manages
+the wrapper's files and updates; users do not need to run pip commands themselves.
+No PyPI upload or account configuration is performed by local build commands.
 
 ## Standalone use
 
-See the [library README](../packages/aaos-logging-drive/README.md) for a complete
+See the [library README on PyPI](https://pypi.org/project/aaos-logging-drive/0.1.0/) for a complete
 asynchronous example and the public API. The host application supplies an
 `aiohttp.ClientSession`, an async OAuth token provider and the selected car folder.
 `AAOSDriveClient.from_google_drive(..., history_path=...)` handles complete imports
@@ -51,14 +52,14 @@ Artifacts are produced independently:
 
 - `dist/aaos_logging_drive-0.1.0-py3-none-any.whl` — standalone wheel.
 - `dist/aaos_logging_drive-0.1.0.tar.gz` — standalone source project, including its tests.
-- `release/aaos-drive-0.5.0a1.zip` — Home Assistant wrapper and user documentation.
+- `release/aaos-drive-0.5.0.zip` — Home Assistant wrapper and user documentation.
 
 The package checker rejects HA imports in the library, a mismatched dependency
 pin, library builds differing from source, and unintended files in the archives.
 The standalone test process does not import HA stubs or the custom component.
 CI installs the built wheel for those tests, separately from adapter tests.
 
-## Test the unpublished package with Home Assistant Core
+## Develop future library changes with Home Assistant Core
 
 Use a development Core environment, with this package installed into the same
 Python environment as Home Assistant:
@@ -70,8 +71,9 @@ hass --skip-pip-packages aaos-logging-drive
 
 Copy/symlink the wrapper into that development installation's `custom_components`.
 This follows Home Assistant's [unpublished-library development workflow](https://contributors.home-assistant.io/core/integrations/manifest/#requirements).
-Do not install the preview as a normal HACS update before its PyPI dependency is
-available; HA otherwise tries to download that exact version and setup fails.
+For future releases, publish any new pinned library version to PyPI before
+releasing the corresponding wrapper; otherwise normal HA setup cannot resolve
+the dependency. Released wrapper 0.5.0 uses the published library version 0.1.0.
 
 ## Release order
 

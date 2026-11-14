@@ -2,9 +2,9 @@
 
 AAOS Logging Drive imports your car's completed, synced trips from Google Drive into Home Assistant. It creates a car device with measured sensors, retains every exported sample, and supplies a trip dashboard and historical numeric statistics.
 
-**Development preview:** the `PyPi` branch requires the separate `aaos-logging-drive==0.1.0` library. Before that version is published to PyPI, use the [library development setup](PYTHON_LIBRARY.md); ordinary HACS installation cannot resolve the unpublished dependency.
+The integration uses a Home Assistant wrapper and the published `aaos-logging-drive==0.1.0` PyPI library. Home Assistant installs the library automatically when the integration loads. Install or update the wrapper through HACS or the release ZIP; you do not need to install the Python library yourself.
 
-This guide covers integration **0.5.0a1**, Home Assistant **2026.9 or later**, AAOS Logging Drive sync **V3**, day-file format **1** and trip schema **17**. Its section order follows the [Home Assistant Google Drive guide](https://www.home-assistant.io/integrations/google_drive/). The setup steps below apply to **AAOS Logging Drive**, the custom integration supplied in this package.
+This guide covers integration **0.5.0**, Home Assistant **2026.9 or later**, AAOS Logging Drive sync **V3**, day-file format **1** and trip schema **17**. Its section order follows the [Home Assistant Google Drive guide](https://www.home-assistant.io/integrations/google_drive/). The setup steps below apply to **AAOS Logging Drive**, the custom integration supplied in this package.
 
 Each household uses its own Google account and OAuth credentials. The package includes no registered client ID or secret. You do not need to operate a separate website or authorization service.
 
@@ -28,7 +28,7 @@ Have the following ready:
 - AAOS Logging on the vehicle, with at least one completed Google Drive sync using V3.
 - A Google account able to view and download the vehicle's synced files.
 - A Google Cloud project with Google Drive API enabled and a dedicated **Web application** OAuth client for this integration.
-- Internet access from Home Assistant to Google and from the browser used for account linking.
+- Internet access from Home Assistant to Google and PyPI, and from the browser used for account linking.
 
 ### Prepare the vehicle data
 
@@ -127,7 +127,7 @@ HACS manages the files in `custom_components/aaos_drive`, including the built-in
 ### Install the custom integration files
 
 1. Make a Home Assistant backup before replacing an existing installation.
-2. Extract `aaos-drive-0.5.0a1.zip` on your computer.
+2. Extract `aaos-drive-0.5.0.zip` on your computer.
 3. Open Home Assistant's configuration directory using your normal file-access method. Home Assistant OS normally exposes it as `/config`. For a Container installation, use the host folder mounted at `/config`.
 4. Create `custom_components` inside that configuration directory if it does not exist.
 5. Copy the **whole** `aaos_drive` folder from the ZIP's `custom_components` directory into it. The result must include:
@@ -236,7 +236,7 @@ The table displays up to the last 500 loaded primary-field records. That display
 
 The sidebar works immediately after installation. For a dashboard card:
 
-1. Add `/aaos_drive/history.js?v=0.5.0a1` as a dashboard resource of type **JavaScript module**. In the dashboard resources screen, use **Add resource**; enable Advanced mode in your profile if the resource settings are not visible.
+1. Add `/aaos_drive/history.js?v=0.5.0` as a dashboard resource of type **JavaScript module**. In the dashboard resources screen, use **Add resource**; enable Advanced mode in your profile if the resource settings are not visible.
 2. Edit your dashboard, add a **Manual** card, and paste:
 
    ```yaml
@@ -333,7 +333,18 @@ When reporting a problem, include the integration/Home Assistant versions, the a
 - [Google Drive scopes](https://developers.google.com/workspace/drive/api/guides/api-specific-auth): what read-only access permits.
 - [Google personal-use verification exception](https://support.google.com/cloud/answer/13464323?hl=en): personal OAuth app rules.
 
-Google and Home Assistant can change console labels and screens. Use the linked official instructions if a label differs. Integration-specific steps and defaults in this guide match version 0.5.0a1.
+Google and Home Assistant can change console labels and screens. Use the linked official instructions if a label differs. Integration-specific steps and defaults in this guide match version 0.5.0.
+
+### Upgrade to the PyPI library and wrapper in 0.5.0
+
+Update **AAOS Logging Drive** in HACS, then restart Home Assistant. It downloads
+the pinned `aaos-logging-drive==0.1.0` dependency from PyPI automatically. For a
+manual upgrade, replace the complete `/config/custom_components/aaos_drive`
+folder with the new release's folder, so obsolete integration code is removed.
+Keep your Home Assistant configuration and `.storage` files. Existing OAuth
+credentials, vehicle configuration, entity IDs and imported history are retained;
+you do not need to remove the device or import the Drive dataset again.
+Update manually configured dashboard resources to `?v=0.5.0` and refresh the browser.
 
 
 ### Battery reliability upgrade in 0.4.7
@@ -341,7 +352,7 @@ Google and Home Assistant can change console labels and screens. Use the linked 
 Restart Home Assistant after installing. The first startup reviews existing
 cached recordings locally and repairs eligible energy summaries and statistics;
 there is no need to clear data or download the recordings again. Future polls
-reuse the database. Refresh any dashboard resource URL to `?v=0.5.0a1`.
+reuse the database. Refresh any dashboard resource URL to `?v=0.5.0`.
 Estimated power is labelled and smoothed; unavailable energy is not zero.
 See [battery energy reliability](BATTERY_ENERGY.md) for details.
 
