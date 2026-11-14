@@ -106,7 +106,7 @@ class FrontendTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual({path[0] for path in paths}, {"/aaos_drive/history.js", "/aaos_drive/icon.png"})
 
     async def test_dashboard_exposes_fuel_trip_measurements_but_not_metadata_entities(self):
-        from custom_components.aaos_drive.measurements import series_info
+        from aaos_logging_drive.measurements import series_info
         fields = [series_info(field) for field in ("telemetry.fuelConsumptionLitersPer100Km", "telemetry.fuelDoorOpen",
             "trip.fuelUsage.movingFuelLiters", "trip.fuelUsage.coveragePercent", "trip.fuelUsage.includesStationaryFuel",
             "telemetry.vehicleType", "vehicle.specifications.vehicleType")]

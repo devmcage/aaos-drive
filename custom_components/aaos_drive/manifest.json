@@ -8,6 +8,6 @@
   "integration_type": "device",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/devmcage/aaos-drive/issues",
-  "requirements": [],
-  "version": "0.4.8"
+  "requirements": ["aaos-logging-drive==0.1.0"],
+  "version": "0.5.0a1"
 }

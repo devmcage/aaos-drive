@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections import OrderedDict
 from datetime import datetime, timezone
 import hashlib
 import re
+from zoneinfo import ZoneInfo
 
-from .model import Artifact, ExportNotReady, InvalidExport, Manifest, Snapshot, archive_trips, finite, integer, json_object, trip_summary
+from .model import Artifact, ExportNotReady, InvalidExport, Manifest, Snapshot, archive_trips, finite, integer, json_object, timestamp, trip_summary
 
 
 class DriveRepository:
-    def __init__(self, drive, vehicle_folder: str, executor, expected_identity: dict | None = None):
+    def __init__(self, drive, vehicle_folder: str, executor=asyncio.to_thread, expected_identity: dict | None = None):
         self.drive = drive
         self.vehicle_folder = vehicle_folder
         self.executor = executor
@@ -148,6 +150,9 @@ class DriveRepository:
     async def trips(self, snapshot: Snapshot, period: str = "", summaries_only: bool = False) -> list[dict]:
         if period and not re.fullmatch(r"\d{4}-\d{2}(?:-\d{2})?", period):
             raise InvalidExport("Period must be YYYY-MM or YYYY-MM-DD")
+        # ZoneInfo can read the timezone database on a cache miss. Resolve it
+        # once off the event loop, then share it across all matching trips.
+        zone = await self.executor(ZoneInfo, snapshot.manifest.raw["timeZone"]) if len(period) == 10 else None
         result = []
         for artifact in snapshot.manifest.artifacts:
             if artifact.kind not in {"day_archive", "month_archive"}:
@@ -158,9 +163,7 @@ class DriveRepository:
             trips = await self.executor(archive_trips, data, artifact, snapshot.manifest.raw["datasetId"])
             if len(period) == 10:
                 # Monthly ZIPs group by start day in the export's timezone.
-                from zoneinfo import ZoneInfo
-                from .model import timestamp
-                trips = [t for t in trips if timestamp(t["startedAt"]).astimezone(ZoneInfo(snapshot.manifest.raw["timeZone"])).date().isoformat() == period]
+                trips = [t for t in trips if timestamp(t["startedAt"]).astimezone(zone).date().isoformat() == period]
             result.extend([trip_summary(t) for t in trips] if summaries_only else trips)
         if len({t["tripId"] for t in result}) != len(result):
             raise InvalidExport("Duplicate trip IDs across committed archives")

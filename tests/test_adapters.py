@@ -9,11 +9,11 @@ from .fixtures import FakeDrive
 from custom_components.aaos_drive.binary_sensor import AAOSBinarySensor, StaleSensor
 from custom_components.aaos_drive.button import RefreshButton
 from custom_components.aaos_drive.config_flow import OAuth2FlowHandler
-from custom_components.aaos_drive.const import READ_SCOPE
+from aaos_logging_drive.const import READ_SCOPE
 from custom_components.aaos_drive.coordinator import AAOSCoordinator
 from custom_components.aaos_drive.device_tracker import LoggedPosition
-from custom_components.aaos_drive.model import InvalidExport
-from custom_components.aaos_drive.repository import DriveRepository
+from aaos_logging_drive.model import InvalidExport
+from aaos_logging_drive.repository import DriveRepository
 from custom_components.aaos_drive.sensor import AAOSSensor, async_setup_entry as setup_sensors, remove_legacy_entities
 
 
@@ -185,7 +185,7 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
     async def test_coordinator_does_not_replace_last_state_when_import_fails(self):
         repository = SimpleNamespace(accepted_head=None, refresh=AsyncMock(side_effect=InvalidExport("missing artifact")))
         store = SimpleNamespace(async_save=AsyncMock())
-        coordinator = AAOSCoordinator(SimpleNamespace(), self.entry, repository, store)
+        coordinator = AAOSCoordinator(SimpleNamespace(async_add_executor_job=asyncio.to_thread), self.entry, repository, store)
         coordinator.data = self.snapshot
         with self.assertRaises(ha_stub.UpdateFailed):
             await coordinator._async_update_data()
@@ -199,18 +199,18 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
         history = SimpleNamespace(fields_with_data=Mock(return_value={"telemetry.speedKph"}))
         hass = SimpleNamespace(async_add_executor_job=asyncio.to_thread, state="starting")
         coordinator = AAOSCoordinator(hass, self.entry, repository, store, history)
-        with patch("custom_components.aaos_drive.coordinator.sync_history", side_effect=InvalidExport("incomplete history")):
+        with patch("aaos_logging_drive.client.sync_history", side_effect=InvalidExport("incomplete history")):
             with self.assertRaises(ha_stub.UpdateFailed):
                 await coordinator._async_update_data()
         store.async_save.assert_not_awaited()
         self.assertIsNone(coordinator.saved_head)
-        with patch("custom_components.aaos_drive.coordinator.sync_history", new=AsyncMock()):
+        with patch("aaos_logging_drive.client.sync_history", new=AsyncMock()):
             await coordinator._async_update_data()
         store.async_save.assert_awaited_once_with(repository.accepted_head)
         self.assertEqual(coordinator.saved_head,repository.accepted_head)
         # Recorder import must wait for CoreState.running, not merely a starting server.
         coordinator._async_statistics=AsyncMock()
-        with patch("custom_components.aaos_drive.coordinator.sync_history", new=AsyncMock()):
+        with patch("aaos_logging_drive.client.sync_history", new=AsyncMock()):
             await coordinator._async_update_data()
         coordinator._async_statistics.assert_not_awaited()
 
@@ -221,7 +221,7 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
             {"telemetry.speedKph"}, {"telemetry.speedKph", "telemetry.engineRpm"}]))
         hass = SimpleNamespace(async_add_executor_job=asyncio.to_thread, state="starting")
         coordinator = AAOSCoordinator(hass, self.entry, repository, SimpleNamespace(async_save=AsyncMock()), history)
-        with patch("custom_components.aaos_drive.coordinator.sync_history", new=AsyncMock()):
+        with patch("aaos_logging_drive.client.sync_history", new=AsyncMock()):
             await coordinator._async_update_data()
             await coordinator._async_update_data()
             self.assertEqual(coordinator.fields_with_data, {"telemetry.speedKph"})

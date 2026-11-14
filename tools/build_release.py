@@ -6,7 +6,7 @@ from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
 ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location("aaos_constants", ROOT / "custom_components/aaos_drive/const.py")
+spec = importlib.util.spec_from_file_location("aaos_constants", ROOT / "packages/aaos-logging-drive/src/aaos_logging_drive/const.py")
 constants = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(constants)
 

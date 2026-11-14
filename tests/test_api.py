@@ -4,8 +4,8 @@ import aiohttp
 
 from . import bootstrap
 from .fixtures import encoded
-from custom_components.aaos_drive.api import DriveAuthError, DriveError, ReadOnlyDrive, folder_id
-from custom_components.aaos_drive.model import InvalidExport
+from aaos_logging_drive.api import DriveAuthError, DriveError, ReadOnlyDrive, folder_id
+from aaos_logging_drive.model import InvalidExport
 
 
 class Content:
@@ -52,7 +52,7 @@ async def token():
 class ApiTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.sleep = AsyncMock()
-        patcher = patch("custom_components.aaos_drive.api.asyncio.sleep", self.sleep)
+        patcher = patch("aaos_logging_drive.api.asyncio.sleep", self.sleep)
         patcher.start()
         self.addCleanup(patcher.stop)
 

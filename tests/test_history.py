@@ -8,10 +8,11 @@ import unittest
 
 from . import bootstrap
 from .fixtures import FakeDrive, day_document
-from custom_components.aaos_drive.const import TELEMETRY_FIELDS
-from custom_components.aaos_drive.history import HistoryStore, sync_history, statistic_id
-from custom_components.aaos_drive.model import Artifact, InvalidExport
-from custom_components.aaos_drive.repository import DriveRepository
+from aaos_logging_drive.const import TELEMETRY_FIELDS
+from custom_components.aaos_drive.statistics_ids import statistic_id
+from aaos_logging_drive.history import HistoryStore, sync_history
+from aaos_logging_drive.model import Artifact, InvalidExport
+from aaos_logging_drive.repository import DriveRepository
 
 
 class HistoryTests(unittest.IsolatedAsyncioTestCase):

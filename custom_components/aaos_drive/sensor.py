@@ -7,7 +7,7 @@ from homeassistant.core import callback
 
 from .const import BINARY_FIELDS
 from .entity import AAOSEntity
-from .model import finite, timestamp
+from aaos_logging_drive.model import finite, timestamp
 from .measurements import TIMESTAMPS, car_sensor, label, measurement, series_info
 
 
@@ -79,7 +79,7 @@ class AAOSSensor(AAOSEntity, SensorEntity):
         attrs = super().extra_state_attributes
         value = self.coordinator.data.values().get(self.key)
         if self.field in {"batteryCurrentCapacityWh", "batteryNominalCapacityWh", "batteryCapacityRetentionPercent"}:
-            from .battery_capacity import NOTICE
+            from aaos_logging_drive.battery_capacity import NOTICE
             point = self.coordinator.data.telemetry
             attrs.update(capacity_description=NOTICE, capacity_source="AAOS reported usable capacities",
                          battery_current_capacity_wh=point.get("batteryCurrentCapacityWh"),

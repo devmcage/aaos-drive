@@ -10,8 +10,8 @@ from unittest.mock import AsyncMock, Mock, patch
 from . import bootstrap, ha_stub
 from .fixtures import FakeDrive, day_document
 from custom_components.aaos_drive.coordinator import AAOSCoordinator
-from custom_components.aaos_drive.history import HistoryStore
-from custom_components.aaos_drive.repository import DriveRepository
+from aaos_logging_drive.history import HistoryStore
+from aaos_logging_drive.repository import DriveRepository
 
 
 class RefreshTests(unittest.IsolatedAsyncioTestCase):
@@ -59,6 +59,20 @@ class RefreshTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.repo.accepted_head["identity"],{"datasetId":"dataset-b","vehicleId":"vehicle-b"})
         self.assertEqual(self.repo.expected_identity,self.repo.accepted_head["identity"])
         self.update_entry.assert_called_once()
+
+    async def test_merge_configuration_retries_after_checkpoint_save_fails(self):
+        self.configure_original_identity()
+        await self.coordinator._async_update_data()
+        self.drive.publish(2, uniform=True, dataset_id="dataset-b", vehicle_id="vehicle-b", merged_datasets=["dataset-a"])
+        self.store.async_save.side_effect = [OSError("checkpoint save failed"), None]
+        with self.assertRaisesRegex(ha_stub.UpdateFailed, "checkpoint save failed"):
+            await self.coordinator._async_update_data()
+        self.assertEqual(self.entry.data["dataset_id"], "dataset-a")
+        self.assertEqual(self.repo.expected_identity["datasetId"], "dataset-b")
+        await self.coordinator._async_update_data()
+        self.assertEqual(self.entry.data["dataset_id"], "dataset-b")
+        self.assertEqual(self.entry.unique_id, "vehicle-a:dataset-a")
+        self.assertEqual(self.history.overview()["trip_count"], 2)
 
     async def test_unrelated_identity_never_replaces_history_or_configuration(self):
         self.configure_original_identity()

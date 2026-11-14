@@ -3,7 +3,7 @@
 from homeassistant.components.device_tracker import SourceType, TrackerEntity
 
 from .entity import AAOSEntity
-from .model import finite
+from aaos_logging_drive.model import finite
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
