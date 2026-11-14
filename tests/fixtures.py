@@ -7,7 +7,7 @@ import json
 from zipfile import ZipFile, ZipInfo, ZIP_DEFLATED
 
 from . import bootstrap
-from custom_components.aaos_drive.const import TELEMETRY_FIELDS
+from aaos_logging_drive.const import TELEMETRY_FIELDS
 
 
 def encoded(value):
@@ -132,14 +132,14 @@ class FakeDrive:
     async def child_folder(self, parent, name):
         matches = [f for f in self.folder_lists[parent] if f["name"] == name]
         if len(matches) != 1:
-            from custom_components.aaos_drive.model import InvalidExport
+            from aaos_logging_drive.model import InvalidExport
             raise InvalidExport("Folder missing")
         return matches[0]["id"]
 
     async def download(self, file_id, limit=None):
         self.downloads.append(file_id)
         if file_id != "head" and file_id not in self.blobs:
-            from custom_components.aaos_drive.api import DriveNotFoundError
+            from aaos_logging_drive.api import DriveNotFoundError
             raise DriveNotFoundError("A generation file was removed during the read")
         return self.commit if file_id == "head" else self.blobs[file_id]
 

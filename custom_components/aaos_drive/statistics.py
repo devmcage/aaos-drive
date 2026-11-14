@@ -10,7 +10,7 @@ from homeassistant.components.recorder.models import StatisticMeanType
 from homeassistant.components.recorder.statistics import async_add_external_statistics, async_import_statistics, async_update_statistics_metadata
 from homeassistant.helpers import entity_registry as er
 
-from .history import statistic_id
+from .statistics_ids import statistic_id
 from .const import DOMAIN
 from .measurements import car_sensor, series_info
 

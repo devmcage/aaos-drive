@@ -11,11 +11,11 @@ from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.core import CoreState
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .api import DriveAuthError, DriveNotFoundError
+from aaos_logging_drive import AAOSDriveClient
+from aaos_logging_drive.api import DriveAuthError
 from .const import DEFAULT_SCAN_MINUTES, NAME
-from .model import ExportNotReady, InvalidExport
-from .api import DriveError
-from .history import sync_history
+from aaos_logging_drive.model import InvalidExport
+from aaos_logging_drive.api import DriveError
 
 
 class AAOSCoordinator(DataUpdateCoordinator):
@@ -27,6 +27,7 @@ class AAOSCoordinator(DataUpdateCoordinator):
         self.store = store
         self.lock = asyncio.Lock()
         self.history = history
+        self.client = AAOSDriveClient(repository, history, executor=hass.async_add_executor_job)
         self.fields_with_data = None
         self.visibility_generation = None
         self.statistics_error = None
@@ -37,18 +38,7 @@ class AAOSCoordinator(DataUpdateCoordinator):
         try:
             async with self.lock:
                 self.last_checked_at = datetime.now(timezone.utc)
-                for attempt in range(3):
-                    try:
-                        snapshot = await self.repository.refresh(accept=False)
-                        if self.history is not None:
-                            await sync_history(self.history, self.repository, snapshot, self.hass.async_add_executor_job)
-                        break
-                    except (ExportNotReady, DriveNotFoundError):
-                        if attempt == 2:
-                            raise
-                        await asyncio.sleep(2 ** attempt)
-                self.repository.accept_snapshot(snapshot)
-                snapshot.checked_at = datetime.now(timezone.utc)
+                snapshot = await self.client.refresh()
                 visibility_generation = (snapshot.manifest.raw["datasetId"], snapshot.manifest.raw["generationId"])
                 if self.history is not None:
                     if self.visibility_generation != visibility_generation:
@@ -58,7 +48,11 @@ class AAOSCoordinator(DataUpdateCoordinator):
                 if self.saved_head != self.repository.accepted_head:
                     await self.store.async_save(self.repository.accepted_head)
                     self.saved_head = dict(self.repository.accepted_head)
-                if snapshot.previous_identity is not None:
+                configured = getattr(self.entry, "data", {})
+                identity_differs = configured.get("dataset_id") and (
+                    configured.get("dataset_id") != snapshot.manifest.raw["datasetId"] or
+                    configured.get("vehicle_id") != snapshot.manifest.raw["vehicleId"])
+                if snapshot.previous_identity is not None or identity_differs:
                     identity = {key: snapshot.manifest.raw[key] for key in ("datasetId", "vehicleId")}
                     self.hass.config_entries.async_update_entry(self.entry, data={**self.entry.data,
                         "dataset_id": identity["datasetId"], "vehicle_id": identity["vehicleId"]})

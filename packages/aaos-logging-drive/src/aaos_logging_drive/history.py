@@ -5,11 +5,11 @@ fully validated generation becomes visible. OAuth credentials never enter this D
 """
 
 from contextlib import contextmanager
-import hashlib
 import json
 from pathlib import Path
 import re
 import sqlite3
+import asyncio
 
 from .battery_capacity import capacity_telemetry
 from .const import BINARY_FIELDS, HISTORY_PROCESSING_VERSION, TELEMETRY_FIELDS, TRIP_FIELDS, WEATHER_FIELDS
@@ -438,7 +438,7 @@ class HistoryStore:
             Path(str(self.path) + suffix).unlink(missing_ok=True)
 
 
-async def sync_history(store, repository, snapshot, executor):
+async def sync_history(store, repository, snapshot, executor=asyncio.to_thread):
     state = await executor(store.state)
     identity = {key: snapshot.manifest.raw[key] for key in ("datasetId", "vehicleId")}
     if state["generation_id"] == snapshot.manifest.raw["generationId"] and state["identity"] == identity:
@@ -456,12 +456,3 @@ async def sync_history(store, repository, snapshot, executor):
     await repository.ensure_current(snapshot)
     await executor(store.complete, snapshot, indexes)
     await executor(store.attach, snapshot)
-
-
-def statistic_id(entry_id, field):
-    # Home Assistant's ULID entry IDs contain capitals. Recorder requires
-    # lowercase slugs without consecutive/leading/trailing underscores.
-    entry_slug = re.sub(r"[^a-z0-9]+", "_", entry_id.lower()).strip("_")
-    slug = re.sub(r"[^a-z0-9]+", "_", field.lower()).strip("_")
-    digest = hashlib.sha256(field.encode()).hexdigest()[:8]
-    return f"aaos_drive:{entry_slug}_{slug}_{digest}"

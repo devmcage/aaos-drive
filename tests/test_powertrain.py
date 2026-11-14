@@ -11,10 +11,10 @@ import unittest
 from . import bootstrap, ha_stub
 from .fixtures import FakeDrive, fuel_day
 from custom_components.aaos_drive.binary_sensor import AAOSBinarySensor
-from custom_components.aaos_drive.const import FUEL_USAGE_FIELDS, FUEL_USAGE_MEASUREMENTS
-from custom_components.aaos_drive.history import HistoryStore, sync_history
-from custom_components.aaos_drive.measurements import car_sensor, dashboard_field, series_info
-from custom_components.aaos_drive.repository import DriveRepository
+from aaos_logging_drive.const import FUEL_USAGE_FIELDS, FUEL_USAGE_MEASUREMENTS
+from aaos_logging_drive.history import HistoryStore, sync_history
+from aaos_logging_drive.measurements import car_sensor, dashboard_field, series_info
+from aaos_logging_drive.repository import DriveRepository
 from custom_components.aaos_drive.sensor import AAOSSensor
 
 

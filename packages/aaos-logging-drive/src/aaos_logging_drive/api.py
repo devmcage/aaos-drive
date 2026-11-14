@@ -1,4 +1,4 @@
-"""Google Drive API reads only. OAuth token refresh belongs to Home Assistant."""
+"""Google Drive API reads only. OAuth token refresh belongs to the caller."""
 
 from __future__ import annotations
 

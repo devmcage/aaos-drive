@@ -6,7 +6,7 @@ from homeassistant.components.binary_sensor import BinarySensorEntity
 
 from .const import BINARY_FIELDS, DEFAULT_STALE_HOURS
 from .entity import AAOSEntity
-from .model import timestamp
+from aaos_logging_drive.model import timestamp
 from .sensor import label
 
 

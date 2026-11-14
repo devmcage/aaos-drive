@@ -13,8 +13,8 @@ from unittest.mock import AsyncMock, Mock, patch
 from . import bootstrap, ha_stub
 from .fixtures import FakeDrive
 from custom_components.aaos_drive.binary_sensor import AAOSBinarySensor, StaleSensor
-from custom_components.aaos_drive.history import HistoryStore, sync_history
-from custom_components.aaos_drive.repository import DriveRepository
+from aaos_logging_drive.history import HistoryStore, sync_history
+from aaos_logging_drive.repository import DriveRepository
 from custom_components.aaos_drive.sensor import AAOSSensor
 
 

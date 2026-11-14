@@ -11,11 +11,11 @@ from unittest.mock import patch
 
 from . import bootstrap, ha_stub
 from .fixtures import FakeDrive, day_document, fuel_day
-from custom_components.aaos_drive.energy import BatteryPowerWindow, effective_telemetry, review_energy
-from custom_components.aaos_drive.history import HistoryStore, sync_history
-from custom_components.aaos_drive.measurements import car_sensor, dashboard_field
-from custom_components.aaos_drive.model import InvalidExport, trip_summary
-from custom_components.aaos_drive.repository import DriveRepository
+from aaos_logging_drive.energy import BatteryPowerWindow, effective_telemetry, review_energy
+from aaos_logging_drive.history import HistoryStore, sync_history
+from aaos_logging_drive.measurements import car_sensor, dashboard_field
+from aaos_logging_drive.model import InvalidExport, trip_summary
+from aaos_logging_drive.repository import DriveRepository
 from custom_components.aaos_drive.sensor import AAOSSensor
 
 
@@ -60,7 +60,7 @@ class EnergyTests(unittest.TestCase):
                 trip = zero_power_day(energy=energy)['trips'][0]
                 trip['telemetry'][0]['powerKw'] = 311.638944
                 trip['telemetry'][1]['powerKw'] = -97.948128
-                with patch('custom_components.aaos_drive.energy.BatteryEvidence.add', side_effect=AssertionError('Unexpected scan')):
+                with patch('aaos_logging_drive.energy.BatteryEvidence.add', side_effect=AssertionError('Unexpected scan')):
                     review = review_energy(trip)
                 self.assertEqual(review.energy, energy)
                 self.assertFalse(review.repair_power)
@@ -254,7 +254,7 @@ class EnergyHistoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(snapshot.values()['trip.energyQuality'], 'recovered')
         self.assertTrue(self.history.state()['statistics_pending'])
         self.history.statistics_done({})
-        with patch('custom_components.aaos_drive.history.review_energy', side_effect=AssertionError('Repeated review')):
+        with patch('aaos_logging_drive.history.review_energy', side_effect=AssertionError('Repeated review')):
             self.history.initialize()
             await sync_history(self.history, self.repo, snapshot, asyncio.to_thread)
             self.history.trip_index()

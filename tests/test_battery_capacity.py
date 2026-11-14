@@ -11,10 +11,10 @@ import unittest
 
 from . import bootstrap, ha_stub
 from .fixtures import FakeDrive, day_document
-from custom_components.aaos_drive.battery_capacity import capacity_telemetry, NOTICE
-from custom_components.aaos_drive.history import HistoryStore, sync_history
-from custom_components.aaos_drive.measurements import series_info
-from custom_components.aaos_drive.repository import DriveRepository
+from aaos_logging_drive.battery_capacity import capacity_telemetry, NOTICE
+from aaos_logging_drive.history import HistoryStore, sync_history
+from aaos_logging_drive.measurements import series_info
+from aaos_logging_drive.repository import DriveRepository
 from custom_components.aaos_drive.sensor import AAOSSensor
 
 

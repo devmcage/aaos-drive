@@ -10,8 +10,9 @@ from unittest.mock import AsyncMock, Mock
 
 from . import bootstrap, ha_stub
 from .fixtures import FakeDrive, day_document, fuel_day
-from custom_components.aaos_drive.history import HistoryStore, sync_history, statistic_id
-from custom_components.aaos_drive.repository import DriveRepository
+from custom_components.aaos_drive.statistics_ids import statistic_id
+from aaos_logging_drive.history import HistoryStore, sync_history
+from aaos_logging_drive.repository import DriveRepository
 
 
 class StatisticsTests(unittest.IsolatedAsyncioTestCase):

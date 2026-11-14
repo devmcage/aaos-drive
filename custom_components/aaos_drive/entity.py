@@ -5,7 +5,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.core import callback
 
 from .const import DOMAIN
-from .history import statistic_id
+from .statistics_ids import statistic_id
 from .measurements import car_sensor, series_info
 
 
@@ -106,7 +106,7 @@ class AAOSEntity(CoordinatorEntity):
             if field in {"powerKw", "batteryEnergyWh", "batteryPercent"}:
                 attrs["energy_scope"] = "traction_battery"
             if field == "powerKw":
-                from .energy import energy_description
+                from aaos_logging_drive.energy import energy_description
                 point = snapshot.telemetry
                 source = point.get('powerSource')
                 quality = point.get('powerQuality') or ('unavailable' if point.get('powerKw') is None else

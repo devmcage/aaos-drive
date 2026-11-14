@@ -12,8 +12,8 @@ from homeassistant.config_entries import ConfigEntryState
 from homeassistant.exceptions import HomeAssistantError
 
 from .const import DOMAIN
-from .history import statistic_id
-from .model import InvalidExport
+from .statistics_ids import statistic_id
+from aaos_logging_drive.model import InvalidExport
 from .measurements import dashboard_field
 
 
@@ -142,4 +142,4 @@ async def async_setup_frontend(hass):
     ])
     await async_register_panel(hass, frontend_url_path="aaos-history", webcomponent_name="aaos-history-panel",
         sidebar_title="AAOS history", sidebar_icon="mdi:chart-timeline-variant",
-        module_url="/aaos_drive/history.js?v=0.4.8", embed_iframe=False, require_admin=True)
+        module_url="/aaos_drive/history.js?v=0.5.0a1", embed_iframe=False, require_admin=True)

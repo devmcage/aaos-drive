@@ -5,14 +5,17 @@ import io
 import json
 from pathlib import Path
 import re
+import threading
 import unittest
+from unittest.mock import patch
 from zipfile import ZipFile
+from zoneinfo import ZoneInfo
 
 from . import bootstrap
 from .fixtures import FakeDrive, day_document, encoded, generation, zipped
-from custom_components.aaos_drive.const import BINARY_FIELDS, READ_SCOPE, TELEMETRY_FIELDS, readonly_grant
-from custom_components.aaos_drive.model import Artifact, InvalidExport, Manifest, archive_trips, json_object, timestamp, trip_summary
-from custom_components.aaos_drive.repository import DriveRepository
+from aaos_logging_drive.const import BINARY_FIELDS, READ_SCOPE, TELEMETRY_FIELDS, readonly_grant
+from aaos_logging_drive.model import Artifact, InvalidExport, Manifest, archive_trips, json_object, timestamp, trip_summary
+from aaos_logging_drive.repository import DriveRepository
 
 
 class RepositoryTests(unittest.IsolatedAsyncioTestCase):
@@ -44,6 +47,33 @@ class RepositoryTests(unittest.IsolatedAsyncioTestCase):
         snapshot = await self.repo.refresh()
         self.assertEqual(snapshot.manifest.raw["generationSequence"], 1)
         self.assertNotIn("uncommitted.json", self.drive.downloads)
+
+    async def test_day_filter_resolves_timezone_once_off_the_event_loop(self):
+        day = day_document("2026-10-04", "dataset-a-2")
+        for index in (1, 2):
+            trip = copy.deepcopy(day["trips"][0])
+            trip["tripId"] = f"dataset-a-{index+2}"
+            offset = index*120000
+            trip["startedAt"] += offset
+            trip["endedAt"] += offset
+            for key, clock in (("telemetry", "recordedAt"), ("route", "recordedAt"), ("weatherSamples", "capturedAt")):
+                for point in trip[key]:
+                    point[clock] += offset
+            day["trips"].append(trip)
+        self.drive.publish(2, uniform=True, latest_day=day)
+        snapshot = await self.repo.refresh()
+        loop_thread = threading.get_ident()
+
+        def load_zone(name):
+            self.assertNotEqual(threading.get_ident(), loop_thread, "Timezone loading blocks the event loop")
+            return ZoneInfo(name)
+
+        with patch("aaos_logging_drive.repository.ZoneInfo", side_effect=load_zone) as resolve:
+            trips = await self.repo.trips(snapshot, "2026-10-04")
+            self.assertEqual(len(trips), 3)
+            resolve.assert_called_once_with("Europe/Amsterdam")
+        with patch("aaos_logging_drive.repository.ZoneInfo", side_effect=AssertionError("Unneeded zone lookup")):
+            self.assertEqual(len(await self.repo.trips(snapshot, "2026-10")), 3)
 
     async def test_metadata_verified_for_historical_artifacts(self):
         for file in self.drive.folder_lists["artifacts"]:

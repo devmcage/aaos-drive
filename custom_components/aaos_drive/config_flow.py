@@ -10,10 +10,10 @@ from homeassistant.core import callback
 from homeassistant.helpers import config_entry_oauth2_flow
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .api import DriveAuthError, DriveError, ReadOnlyDrive, folder_id
+from aaos_logging_drive.api import DriveAuthError, DriveError, ReadOnlyDrive, folder_id
 from .const import DEFAULT_SCAN_MINUTES, DEFAULT_STALE_HOURS, DOMAIN, READ_SCOPE, readonly_grant
-from .model import InvalidExport
-from .repository import DriveRepository
+from aaos_logging_drive.model import InvalidExport
+from aaos_logging_drive.repository import DriveRepository
 
 
 class OAuth2FlowHandler(config_entry_oauth2_flow.AbstractOAuth2FlowHandler, domain=DOMAIN):

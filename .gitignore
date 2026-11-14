@@ -8,3 +8,6 @@ release/*.zip
 secrets.yaml
 *.sqlite
 *.sqlite-*
+dist/
+build/
+*.egg-info/

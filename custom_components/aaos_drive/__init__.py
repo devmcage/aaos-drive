@@ -14,12 +14,12 @@ from homeassistant.helpers.config_entry_oauth2_flow import OAuth2Session, async_
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.start import async_at_started
 
-from .api import DriveAuthError, DriveError, ReadOnlyDrive
+from aaos_logging_drive.api import DriveAuthError, DriveError, ReadOnlyDrive
 from .const import DOMAIN, readonly_grant
 from .coordinator import AAOSCoordinator
-from .model import InvalidExport
-from .repository import DriveRepository
-from .history import HistoryStore
+from aaos_logging_drive.model import InvalidExport
+from aaos_logging_drive.repository import DriveRepository
+from aaos_logging_drive.history import HistoryStore
 
 PLATFORMS = [Platform.SENSOR, Platform.BINARY_SENSOR, Platform.BUTTON, Platform.DEVICE_TRACKER]
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
@@ -124,7 +124,7 @@ async def async_remove_entry(hass, entry):
     history = HistoryStore(hass.config.path(".storage", f"{DOMAIN}_{entry.entry_id}_history.sqlite"))
     if await hass.async_add_executor_job(history.path.exists):
         from homeassistant.components.recorder import get_instance
-        from .history import statistic_id
+        from .statistics_ids import statistic_id
         previous = await hass.async_add_executor_job(history.statistics_state)
         from .statistics import native_statistic_ids
         native = native_statistic_ids(hass, entry)
